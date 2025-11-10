@@ -115,14 +115,14 @@ where
       k preds
 
 
-def sparseParamConstrType (info : InductiveVal) (sparseInds : Array Expr) (indIdx : Nat) (oldParams : Array Expr) (preds : Array (Option Expr)) (ctor : ConstructorVal) : MetaM Expr := do
+partial def sparseParamConstrType (info : InductiveVal) (sparseInds : Array Expr) (indIdx : Nat) (oldParams : Array Expr) (preds : Array (Option Expr)) (ctor : ConstructorVal) : MetaM Expr := do
   -- c : As -> args -> I As Ds
   forallBoundedTelescope ctor.type info.numParams fun params ty =>
     let ty := ty.replaceFVars params oldParams
     -- ty := args -> I As Ds
     forallTelescope ty fun args indAsDs =>
       -- ty := I As Ds
-      withConstPreds oldParams args indAsDs 0 #[] fun constPreds => do
+      withConstPreds oldParams args 0 #[] fun constPreds => do
         -- indices := Ds
         let indices := Expr.getAppArgsN indAsDs info.numIndices
         -- ty := IP As
@@ -136,54 +136,114 @@ def sparseParamConstrType (info : InductiveVal) (sparseInds : Array Expr) (indId
         let cAsArgs := mkAppN cAs args
         let ty := mkApp ty cAsArgs
         -- ty := PArgs -> IP As PAs
-        let ty ← mkForallFVars constPreds ty
+        let ty ← mkForallFVars (constPreds.filterMap id) ty
         -- ty := Args -> PArgs -> IP As PAs
         let ty ← mkForallFVars args ty
         -- ty := PAs -> Args -> PArgs -> IP As PAs
         let ty ← mkForallFVars (preds.filterMap id) ty
         -- ty := As -> PAs -> Args -> PArgs -> IP As PAs
         let ty ← mkForallFVars oldParams ty
+        logInfo m!"sparseParamConstrType {ctor.name} = {ty}"
         return ty
 where
-withConstPreds (params args : Array Expr) (ty : Expr) (argIdx : Nat) (constPreds : Array Expr) (k : Array Expr → MetaM Expr) : MetaM Expr := do
-  if argIdx < args.size then
-    let cont := withConstPreds params args ty (argIdx+1) constPreds k
-    forallTelescope (← inferType args[argIdx]!) fun conArgArgs conArgRes => do
-      if conArgRes.hasAnyFVar (fun f => getParamPred? params f |>.isSome) then
-        conArgRes.withApp fun fn fnargs => do
-          if let some p := fn.fvarId? then
-            if let some predFVar := getParamPred? params p then
-              let ty := mkAppN predFVar fnargs
-              let ty := mkApp ty (mkAppN args[argIdx]! conArgArgs)
-              let ty ← mkForallFVars conArgArgs ty
-              withLocalDecl `Parg .default ty fun constPred =>
-                 withConstPreds params args ty (argIdx+1) (constPreds.push constPred) k
-            else cont
-          else if let some fn := fn.constName? then
-            if (← isInductive fn) then
-              if let some idx := info.all.findIdx? (· == fn) then
-                let ty := mkAppN sparseInds[idx]! fnargs
-                let ty := mkApp ty conArgRes
-                let ty ← mkForallFVars conArgArgs ty
-                withLocalDecl `PInd .default ty fun constPred =>
-                 withConstPreds params args ty (argIdx+1) (constPreds.push constPred) k
-              else
-                throwError "nested parameters are not yet handled"
-            else cont
-          else cont
-      else cont
-  else
-    k constPreds
+  -- TODO remove MetaM monad once logInfo removed
+  getParamPred? (params : Array Expr) (f : FVarId) : Option Expr := Id.run do
+    if let some idx := params.findIdx? (·.fvarId! == f) then
+      return preds[idx]!
+    else
+      none
 
-getParamPred? (params : Array Expr) (f : FVarId) : Option Expr := Id.run do
- if let some idx := params.findIdx? (·.fvarId! == f) then
-    preds[idx]!
- else
-  none
+  withConstPreds (params args : Array Expr) (argIdx : Nat) (constPreds : Array (Option Expr)) (k : Array (Option Expr) → MetaM Expr) : MetaM Expr := do
+    if argIdx < args.size then
+      let arg := args[argIdx]!
+      if let some ty ← predOrArg params arg then
+        withLocalDecl `P .default ty fun constPred =>
+          withConstPreds params args (argIdx+1) (constPreds.push constPred) k
+      else withConstPreds params args (argIdx+1) (constPreds.push none) k
+    else
+      k constPreds
+
+  predOrArg (params : Array Expr) (arg: Expr) : MetaM (Option Expr) := do
+    let argTy ← inferType arg
+    let argTy ← whnf argTy
+    forallTelescope argTy fun conArgArgs conArgRes => do
+        if conArgRes.hasAnyFVar (fun f => getParamPred? params f |>.isSome) then
+          conArgRes.withApp fun fn' fnargs => do
+            if let some p := fn'.fvarId? then
+              if let some predFVar := getParamPred? params p then
+                let ty := mkAppN predFVar fnargs
+                let ty := mkApp ty (mkAppN arg conArgArgs)
+                let ty ← mkForallFVars conArgArgs ty
+                logInfo m!"predOrArg {params} {arg} = {ty} (ParamOcc)"
+                return ty
+              else
+                logInfo m!"predOrArg {params} {arg} = none"
+                return none
+            else if let some fn := fn'.constName? then
+              if (← isInductive fn) then
+                if let some idx := info.all.findIdx? (· == fn) then
+                  let ty := mkAppN sparseInds[idx]! fnargs
+                  let ty := mkApp ty conArgRes
+                  let ty ← mkForallFVars conArgArgs ty
+                  logInfo m!"predOrArg {params} {arg} = {ty} (IndOcc)"
+                  return ty
+                else
+                  let fnLvls := fn'.constLevels!
+                  let nestedInd ← getConstInfoInduct fn
+                  let nestedIndSparseName := fn ++ `Sparse
+                  unless ← isInductive nestedIndSparseName do
+                    throwError "Failed to generate Sparse translation of {info.all[indIdx]!}: Sparse translation for nested type {fn} does not exist"
+                  let nestedParamsMask ← NestedPositivity.positiveParams nestedInd
+                  logInfo m!"nestedParamsMask : {nestedParamsMask}"
+                  let nestedIndParams := fnargs[0...nestedInd.numParams]
+                  logInfo m!"nestedIndParams : {nestedIndParams}"
+                  -- Is As
+                  let ty := mkAppN (mkConst nestedIndSparseName fnLvls) nestedIndParams
+                  logInfo m!"step1 : {ty}"
+                  let PAs ← nestedIndParams.toArray.zipIdx.mapM fun (nestedArgarg,idx) =>
+                    if nestedParamsMask[idx]! then
+                      forallTelescope nestedArgarg fun xs ty => do
+                        withLocalDeclD `z (← mkForallFVars xs ty) fun arg => do
+                          let pred ← do
+                            if let some P ← predOrArg params arg then
+                              pure P
+                            else
+                              let .sort u ← inferType ty | unreachable!
+                              pure (mkConst ``PUnit [u])
+                          -- let pred ← mkForallFVars xs pred
+                          let P ← mkLambdaFVars #[arg] pred
+                          return some P
+                    else
+                      return none
+                  -- Is As PAs
+                  let ty := mkAppN ty (PAs.filterMap id)
+                  logInfo m!"step2 : {ty}"
+                  -- Is As PAs Ds
+                  let ty := mkAppN ty fnargs[0...nestedInd.numIndices]
+                  logInfo m!"step3 : {ty}"
+                  -- llargs -> Is As PAs Ds
+                  let ty := mkApp ty (mkAppN arg conArgArgs)
+                  logInfo m!"step4 : {ty}"
+                  -- llargs -> Is As PAs Ds
+                  let ty ← mkForallFVars conArgArgs ty
+                  logInfo m!"step5 : {ty}"
+                  logInfo m!"predOrArg {params} {arg} = {ty} (NestedIndOcc)"
+                  return ty
+              else
+                logInfo m!"predOrArg {params} {arg} = none (NotIndApp)"
+                return none
+            else
+              logInfo m!"predOrArg {params} {arg} = none (NotParamOrIndOcc)"
+              return none
+        else
+          logInfo m!"predOrArg {params} {arg} = none (NoParamFVarsOccuring)"
+          return none
+
+
 
 def addSparseTranslation (indName : Name) : TermElabM Unit := do
   let indVal ← getConstInfoInduct indName
-  let sparseIndNames := indVal.all.toArray.map (fun n => n ++ `Parametric)
+  let sparseIndNames := indVal.all.toArray.map (fun n => n ++ `Sparse)
   Term.withLevelNames indVal.levelParams do
     let levelParams := indVal.levelParams.map Level.param
     let sparseIndTypes := sparseIndNames.map (mkConst · levelParams)
@@ -192,8 +252,9 @@ def addSparseTranslation (indName : Name) : TermElabM Unit := do
     for (indName,indIdx) in indVal.all.zipIdx do
       let indVal ← getConstInfoInduct indName
       let sparseInd : InductiveType ←  withSparseParamIndType indVal positivityMask fun params preds ty => do
+        logInfo m!"SparseType : {ty}"
         return {
-          name := indName ++ `Parametric
+          name := indName ++ `Sparse
           type  := ty
           ctors := ← sparseConstructors indVal indIdx params preds sparseIndTypes indVal.ctors
         }
@@ -205,7 +266,7 @@ where
     match ctors with
       | [] => return []
       | ctor::tl => do
-        let name := ctor ++ `Parametric
+        let name := ctor ++ `Sparse
         let ctor ← getConstInfoCtor ctor
         let type ← sparseParamConstrType indVal sparseIndTypes indIdx params preds ctor
         logInfo m!"{name} : {type}"
