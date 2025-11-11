@@ -111,8 +111,8 @@ def withSparseParamIndType [Inhabited α] (info : InductiveVal) (positivityMask 
       let indTypes ← indNames.mapM (fun name => inferType (mkConst name (info.levelParams.map Level.param)))
       let sparseIndTypes ← indTypes.toArray.mapM fun indTy => forallBoundedTelescope indTy info.numParams fun oldParamFVars ty => do
         let ty := ty.replaceFVars oldParamFVars paramsFVars
-        forallTelescopeReducing ty fun indices s => do
-          let .sort u := s | unreachable!
+        forallTelescopeReducing ty fun indices _s => do
+          -- let .sort u := s | unreachable!
           -- let predsMaxes : Level := Level.mkNaryIMax ((predUnivs.filterMap id).toList.map Level.param)
           let indTy := (mkAppN (mkConst info.name (info.levelParams.map Level.param)) (paramsFVars ++ indices))
           let ty ← mkArrow indTy (.sort 0 /- (mkLevelIMax' predsMaxes u)-/ )
