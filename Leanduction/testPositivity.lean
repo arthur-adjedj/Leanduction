@@ -11,77 +11,28 @@ elab "#gen_sparse" t:term : command => Command.liftTermElabM do
   let e ← addSparseTranslation t.constName!
   logInfo m!"{e}"
 
-inductive Ok1 where
-  | mk : id Ok1 → Ok1
+inductive Tree (α : Type) where
+  | node : List (Tree α) → Tree α
 
-axiom T : Type → Type
+set_option Elab.async false
 
-inductive Ok2 where
-  | mk : List Ok2 → Ok2
+#gen_sparse List
+set_option pp.universes true
+#print List.Sparse
+#gen_sparse Tree
 
-inductive Nest1 (A : Type 1) where
-  | mk : Option (Nat → A) → Nest1 A
+-- run_cmd Command.liftTermElabM do
+  -- let tparse ← getConstInfoRec ``Tree.Sparse.rec
+  -- for rule in tparse.rules do
+  -- logInfo m!"{rule.rhs}"
+#check List.Sparse
 
-#gen_sparse Option
-#check Option.Sparse
+-- set_option genSizeOfSpec false
+-- inductive Tree.Sparse (α : Type) (P : α → Type u): Tree α → (Type u) where
+  -- | Tree.Sparse.node : (a : List (Tree α)) → List.Sparse (Tree α) (fun z => Tree.Sparse α P z) a → Tree.Sparse α P (Tree.node a)
 
-#gen_sparse Nest1
-
-inductive Nest5 (f : Nat → Type) where
-  | mk : (Nat → Option (Nat → f 5)) → Nest5 f
-
-#gen_sparse Nest5
-#print Nest5.Sparse
-
-inductive Ok5 : Nat → Type where
-  | mk : Nest5 Ok5 → Ok5 n
-
-#gen_sparse Ok5
-
-inductive Nest6 (f : Nat → Type) where
-  | mk : f n → Nest6 f
-
-#gen_sparse Nest6
-
-inductive Ok6 : Nat → Type where
-  | mk : Nest6 Ok6 → Ok6 n
-
-#gen_sparse Ok6
-
-inductive Nest7 (n : Nat) (f : Nat → Type) where
-  | mk : f n → Nest7 n f
-
-#gen_sparse Nest7
-
-inductive Good7 (n : Nat) : Nat → Type where
-  | mk : Nest7 n (Good7 n) → Good7 n n
-
-#gen_sparse Good7
-
-inductive Nest8 (α : Type) : (β : Type) → Type  where
-  | mk : α → Nest8 α Bool
-
-#gen_sparse Nest8
-
-inductive Ok8 : Type where
-  | mk : Nest8 Ok8 Unit → Ok8
-
-#gen_sparse Ok8
-
-inductive Nest9 (α : Type) : Type  where
-  | mk : (α → α) → Nest9 α
-
-#gen_sparse Nest9
-
-inductive Nest10 (α : Type) : Type  where
-  | mk : α  → Nest10 α
-
-#gen_sparse Nest10
-
-inductive Ok10 where
-  | mk : Nest10 (Bool -> Ok10) → Ok10
-
-inductive Nest11 (α : Bool → Type) : Type  where
-  | mk : α true → Nest11 α
-
-#gen_sparse Nest11
+#print Tree.Sparse
+--
+noncomputable def Tree.rec' {α : Type} {motive_1 : Tree α → Prop}
+  (node : (a : List (Tree α)) → List.Sparse (Tree α) motive_1 a → motive_1 (Tree.node a)) (t : Tree α) : motive_1 t :=
+@Tree.rec α motive_1 (List.Sparse (Tree α) motive_1) node (List.Sparse.nil _ _) (List.Sparse.cons _ _) t
