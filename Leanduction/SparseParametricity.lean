@@ -4,6 +4,8 @@ open Lean Elab Meta
 
 namespace SparseParametricityTranslation
 
+def sparseName (n : Name) := n ++ `Sparse
+
 structure Context where
   paramsFVars : Array Expr
   predsFVars : Array (Option Expr)
@@ -82,7 +84,7 @@ partial def sparseParamConstrType
         let ty ← mkForallFVars (ctx.predsFVars.filterMap id) ty
         -- ty := As -> PAs -> Args -> PArgs -> IP As PAs
         let ty ← mkForallFVars ctx.paramsFVars ty
-        logInfo m!"sparseParamConstrType {ctor.name} = {ty}"
+        -- logInfo m!"sparseParamConstrType {ctor.name} = {ty}"
         return ty
 where
   getParamPred? (params : Array Expr) (f : FVarId) : Option Expr := Id.run do
@@ -106,8 +108,8 @@ where
     let argTy ← whnf argTy
     let params := ctx.paramsFVars
     forallTelescope argTy fun conArgArgs conArgRes => do
-      logInfo m!"conArgRes  {conArgRes}"
-                                                                        -- this could be made faster, TODO?
+      -- logInfo m!"conArgRes  {conArgRes}"
+                                                                      -- this could be made faster, TODO?
       if conArgRes.hasAnyFVar (fun f => params.any (·.fvarId! == f)) || conArgRes.getUsedConstants.any info.all.contains then
         conArgRes.withApp fun fn' fnargs => do
           if let some p := fn'.fvarId? then
@@ -123,13 +125,14 @@ where
               if let some idx := info.all.findIdx? (· == fn) then
                 let ty := mkAppN ctx.sparseIndFVars[idx]! fnargs[0...params.size]
                 let ty := mkAppN ty (ctx.predsFVars.filterMap id)
+                let ty := mkAppN ty fnargs[params.size...*]
                 let ty := mkApp ty (mkAppN arg conArgArgs)
                 let ty ← mkForallFVars conArgArgs ty
                 return ty
               else
                 let fnLvls := fn'.constLevels!
                 let nestedInd ← getConstInfoInduct fn
-                let nestedIndSparseName := fn ++ `Sparse
+                let nestedIndSparseName := sparseName fn
                 unless ← isInductive nestedIndSparseName do
                   throwError "Failed to generate Sparse translation of {info.all[indIdx]!}: Sparse translation for nested type {fn} does not exist"
                 let nestedParamsMask ← NestedPositivity.positiveParams nestedInd
@@ -200,7 +203,7 @@ def checkConstant (name : Name): MetaM Unit := do
 def addSparseTranslation (indName : Name) : TermElabM Unit :=
   withOptions (fun opt => opt.set `genSizeOf false) do
   let indVal ← getConstInfoInduct indName
-  let sparseIndNames := indVal.all.toArray.map (fun n => n ++ `Sparse)
+  let sparseIndNames := indVal.all.toArray.map sparseName
   sparseIndNames.forM (checkConstant ·)
   Term.withLevelNames indVal.levelParams do
     let positivityMask ← NestedPositivity.positiveParams indVal
@@ -233,7 +236,7 @@ where
     match ctors with
       | [] => return []
       | ctorName::tl => do
-        let name := ctorName.replacePrefix indVal.name (indVal.name ++ `Sparse)
+        let name := ctorName.replacePrefix indVal.name (sparseName indVal.name)
         checkConstant name
         let ctor ← getConstInfoCtor ctorName
         let type ← sparseParamConstrType indVal indIdx ctor
