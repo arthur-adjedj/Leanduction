@@ -14,8 +14,7 @@ elab "#gen_sparse" t:term : command => Command.liftTermElabM do
 
 elab "#gen_sparse_rec" t:term : command => Command.liftTermElabM do
   let t ← Term.elabTerm t none
-  let e ← SparseRecursor.type t.constName!
-  logInfo m!"{e}"
+  SparseRecursor.genSparseRec t.constName!
 
 #gen_sparse Option
 #gen_sparse List
@@ -31,10 +30,18 @@ inductive Weird (α : Type) : Nat → Type where
 #gen_sparse_rec Weird
 
 inductive Tree (α : Type) : Type where
-  | node : (a : List (Tree α)) → Tree α
+  | node : α → (a : List (Tree α)) → Tree α
 
-#print Tree.Sparse
+#gen_sparse_rec Tree
 
-noncomputable def Tree.rec' {α : Type} {motive_1 : Tree α → Prop}
-  (node : (a : List (Tree α)) → List.Sparse (Tree α) motive_1 a → motive_1 (Tree.node a)) (t : Tree α) : motive_1 t :=
-@Tree.rec α motive_1 (List.Sparse (Tree α) motive_1) node (List.Sparse.nil (Tree α) motive_1) (List.Sparse.cons (Tree α) motive_1) t
+def Tree.map (f : α → β) : Tree α → Tree β
+  | node x children => .node (f x) (children.map (Tree.map f))
+
+example (t : Tree α) : t.map id = t := by
+  induction t with
+  | node x children cih =>
+    rw [Tree.map]
+    congr
+    induction cih
+    · rfl
+    · simp [*]
