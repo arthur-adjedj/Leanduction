@@ -4,6 +4,13 @@ import Leanduction.SparseParametricity
 
 open Lean Elab Meta
 
+
+/-- Transforms expressions of shape `fun x => f x` to `f` when x doesn't appear in `f`, useful to generate better looking recursors-/
+partial def Lean.Expr.tryEtaReduce (e: Expr): Expr :=
+  match e with
+    | .lam _ _ (.app f (.bvar 0)) _ => if f.hasLooseBVar 0 then e else f |>.lowerLooseBVars 0 1 |>.tryEtaReduce
+    | _ => e
+
 namespace SparseRecursor
 
 partial def replaceNestedMotivesAndMinors (indVals : List InductiveVal) (realMotives : Array Expr) (nestedMotives : Array Expr) : MetaM (Array Expr × Array Expr) := do
@@ -18,14 +25,14 @@ where
         let (ty,minors) ← nestedMotiveAndMinors majorType false
         let ty := mkApp ty major
         let ty ← mkLambdaFVars xs ty
-        return (ty,minors)
-      logInfo m!"nestedMotive : {nestedMotiveAndMinors}"
+        return (ty.tryEtaReduce,minors)
+      trace[Sparse.Recursor] m!"nestedMotive : {nestedMotiveAndMinors}"
       go (i+1) (motivesReplacements.push nestedMotiveAndMinors.1) (minorsReplacements.append nestedMotiveAndMinors.2)
     else
       return (motivesReplacements,minorsReplacements)
 
   nestedMotiveAndMinors (motiveType : Expr) (noMinors : Bool) : MetaM (if noMinors then Expr else Expr × Array Expr) := do
-    logInfo m!"nestedMotive {motiveType}"
+    trace[Sparse.Recursor] m!"nestedMotive {motiveType}"
     motiveType.withApp fun fn args =>  do
       let nestedIndName := fn.constName!
       let nestedIndVal ← getConstInfoInduct nestedIndName
@@ -45,7 +52,7 @@ where
           return (ty,minors)
 
   genPred (param : Expr) : MetaM Expr := do
-    logInfo m!"genPred {param}"
+    trace[Sparse.Recursor] m!"genPred {param}"
     forallTelescope param fun xs ty => do
       let fallback := mkLambdaFVars xs (mkConst `True)
       if !(param.getUsedConstants.any indVals[0]!.all.contains) then
@@ -59,14 +66,14 @@ where
             let ty := mkApp ty (mkAppN f xs)
             let ty ← mkForallFVars xs ty
             let motive ← mkLambdaFVars #[f] ty
-            return motive
+            return motive.tryEtaReduce
         else
           let ty ← nestedMotiveAndMinors ty true
           withLocalDeclD `f param fun f => do
             let ty := mkApp ty (mkAppN f xs)
             let ty ← mkForallFVars xs ty
             let motive ← mkLambdaFVars #[f] ty
-            return motive
+            return motive.tryEtaReduce
 
 def genSparseRec (indName : Name) : TermElabM Unit := do
   let info ← getConstInfoInduct indName
@@ -82,7 +89,7 @@ def genSparseRec (indName : Name) : TermElabM Unit := do
     let motives := xs[info.numParams...info.numParams + info.all.length]
     let nestedMotives := xs[(info.numParams + info.all.length)...recInfo.getFirstMinorIdx]
     let (sparseForNestedMotives,nestedsMinors) ← replaceNestedMotivesAndMinors indVals motives nestedMotives
-    logInfo m!"sparseForNestedMotives : {sparseForNestedMotives}"
+    trace[Sparse.Recursor] m!"sparseForNestedMotives : {sparseForNestedMotives}"
     let numMinors := indVals.foldl (init := 0) (fun acc ind => acc + ind.ctors.length)
     let oldMinors := xs[recInfo.getFirstMinorIdx...recInfo.getFirstMinorIdx + numMinors]
     let lctx ← getLCtx
@@ -106,7 +113,7 @@ def genSparseRec (indName : Name) : TermElabM Unit := do
       let te ← mkLambdaFVars minors te
       let te ← mkLambdaFVars motives te
       let te ← mkLambdaFVars params te
-      logInfo m!"term : {te}"
+      trace[Sparse.Recursor] m!"term : {te}"
       Meta.check te
       addDecl <| .defnDecl {
         name := indName ++ `rec_sparse
@@ -117,4 +124,11 @@ def genSparseRec (indName : Name) : TermElabM Unit := do
         safety := .safe
         }
       Term.applyAttributes (indName ++ `rec_sparse) #[{name := `induction_eliminator}]
+
+elab "#gen_sparse_rec" id:ident : command => Command.liftTermElabM do
+  SparseRecursor.genSparseRec id.getId
+
 end SparseRecursor
+
+initialize
+  registerTraceClass `Sparse.Recursor

@@ -27,10 +27,8 @@ def withSparseParamIndType [Inhabited α] (info : InductiveVal) (positivityMask 
       let sparseIndTypes ← indTypes.toArray.mapIdxM fun indIdx indTy => forallBoundedTelescope indTy info.numParams fun oldParamFVars ty => do
         let ty := ty.replaceFVars oldParamFVars paramsFVars
         forallTelescopeReducing ty fun indices _s => do
-          -- let .sort u := s | unreachable!
-          -- let predsMaxes : Level := Level.mkNaryIMax ((predUnivs.filterMap id).toList.map Level.param)
           let indTy := (mkAppN (mkConst indNames[indIdx]! (info.levelParams.map Level.param)) (paramsFVars ++ indices))
-          let ty ← mkArrow indTy (.sort 0 /- (mkLevelIMax' predsMaxes u)-/ )
+          let ty ← mkArrow indTy (.sort 0)
           let ty ← mkForallFVars indices ty
           let ty ← mkForallFVars (predsFVars.filterMap id) ty
           mkForallFVars paramsFVars ty
@@ -45,7 +43,7 @@ where
         let predTy ← forallTelescopeReducing ty fun llargs _ => do
           let predTy ← mkArrow (mkAppN fvars[i]! llargs) (mkSort 0 /-(.param predUnivs[i]!.get!)-/)
           mkForallFVars llargs predTy
-        logInfo m!"predTy : {predTy}"
+        trace[Sparse.Parametricity] m!"predTy : {predTy}"
         withLocalDecl `P .default predTy fun pred =>
           withPredicates fvars (i+1) (preds.push pred) k
       else
@@ -84,7 +82,7 @@ partial def sparseParamConstrType
         let ty ← mkForallFVars (ctx.predsFVars.filterMap id) ty
         -- ty := As -> PAs -> Args -> PArgs -> IP As PAs
         let ty ← mkForallFVars ctx.paramsFVars ty
-        -- logInfo m!"sparseParamConstrType {ctor.name} = {ty}"
+        trace[Sparse.Parametricity] m!"sparseParamConstrType {ctor.name} = {ty}"
         return ty
 where
   getParamPred? (params : Array Expr) (f : FVarId) : Option Expr := Id.run do
@@ -108,7 +106,7 @@ where
     let argTy ← whnf argTy
     let params := ctx.paramsFVars
     forallTelescope argTy fun conArgArgs conArgRes => do
-      -- logInfo m!"conArgRes  {conArgRes}"
+      trace[Sparse.Parametricity] m!"conArgRes  {conArgRes}"
                                                                       -- this could be made faster, TODO?
       if conArgRes.hasAnyFVar (fun f => params.any (·.fvarId! == f)) || conArgRes.getUsedConstants.any info.all.contains then
         conArgRes.withApp fun fn' fnargs => do
@@ -137,7 +135,7 @@ where
                   throwError "Failed to generate Sparse translation of {info.all[indIdx]!}: Sparse translation for nested type {fn} does not exist"
                 let nestedParamsMask ← NestedPositivity.positiveParams nestedInd
                 let nestedIndParams := fnargs[0...nestedInd.numParams]
-                logInfo m!"nestedIndParams : {nestedIndParams}"
+                trace[Sparse.Parametricity] m!"nestedIndParams : {nestedIndParams}"
                 let PAs ← nestedIndParams.toArray.zipIdx.mapM fun (nestedArgarg,idx) =>
                   if nestedParamsMask[idx]! then
                     forallTelescope nestedArgarg fun xs ty => do
@@ -152,9 +150,7 @@ where
                         let P ← mkLambdaFVars #[arg] pred
                         return some P
                   else return none
-                logInfo m!"PAs : {PAs}"
-                -- let PAsUnivs : Array (Option Level) ← PAs.mapM (fun | none => pure none | some e => do forallTelescopeReducing (← inferType e) fun _ s => pure s.sortLevel!)
-                -- let PAsUnivs := PAsUnivs.filterMap id |>.toList
+                trace[Sparse.Parametricity] m!"PAs : {PAs}"
                 -- Is As
                 let ty := mkAppN (mkConst nestedIndSparseName fnLvls /-(PAsUnivs ++ fnLvls)-/) nestedIndParams
                 -- Is As PAs
@@ -175,31 +171,6 @@ def checkConstant (name : Name): MetaM Unit := do
   if env.find? name |>.isSome then
     throwError "Failed to add sparse translation, {name} already exists"
 
--- def mkAuxConstructions (declNames : Array Name) : TermElabM Unit := do
-  -- for n in declNames do
-    -- mkRecOn n
-    -- mkCasesOn n
-    -- mkCtorIdx n
-    -- mkCtorElim n
-    -- mkNoConfusion n
-    -- mkBelow n
-  -- for n in declNames do
-    -- mkBRecOn n
-  -- mkSizeOfInstances declNames[0]!
-  -- for n in declNames do
-    -- mkInjectiveTheorems n
-
--- def withPredUnivs (positiveParams : Array Bool) (k : Array (Option Name) → TermElabM α): TermElabM α := do
-  -- let univName := `p
-  -- let mut idx := 1
-  -- let mut levelNames := Array.replicate positiveParams.size none
-  -- for i in 0...positiveParams.size do
-    -- if positiveParams[i]! then
-      -- let univName := univName.appendIndexAfter idx
-      -- idx := idx+1
-      -- levelNames := levelNames.modify i (fun _ => some univName)
-  -- Term.withLevelNames (levelNames.filterMap id).toList (k levelNames)
-
 def addSparseTranslation (indName : Name) : TermElabM Unit :=
   withOptions (fun opt => opt.set `genSizeOf false) do
   let indVal ← getConstInfoInduct indName
@@ -207,18 +178,15 @@ def addSparseTranslation (indName : Name) : TermElabM Unit :=
   sparseIndNames.forM (checkConstant ·)
   Term.withLevelNames indVal.levelParams do
     let positivityMask ← NestedPositivity.positiveParams indVal
-    -- withPredUnivs positivityMask fun _predUnivs => do
-    let sparseIndUnivs := /-(predUnivs.filterMap id).toList ++-/ indVal.levelParams
-    withSparseParamIndType indVal positivityMask sparseIndNames /-predUnivs-/ $ do
-      logInfo m!"Ctx: {← read}"
+    let sparseIndUnivs := indVal.levelParams
+    withSparseParamIndType indVal positivityMask sparseIndNames $ do
+      trace[Sparse.Parametricity] m!"Ctx: {← read}"
       let mut sparseInds := []
       let sparseIndsWithAsPAs ← do
-        -- let preds := (← read).predsFVars.filterMap id
-        -- let AsPas := (← read).paramsFVars ++ preds
+
         (← read).sparseIndNames.mapM fun name  =>
           return mkConst name (sparseIndUnivs.map Level.param)
-          -- return mkAppN PId AsPas
-      logInfo m!"sparseIndsWithAsPAs : {sparseIndsWithAsPAs}"
+      trace[Sparse.Parametricity] m!"sparseIndsWithAsPAs : {sparseIndsWithAsPAs}"
       for (indName,indIdx) in indVal.all.zipIdx do
         let indVal ← getConstInfoInduct indName
         let sparseInd : InductiveType ← do
@@ -230,7 +198,6 @@ def addSparseTranslation (indName : Name) : TermElabM Unit :=
         sparseInds := sparseInd::sparseInds
       let numParams := indVal.numParams + positivityMask.foldl (init := 0) (fun acc b => if b then acc+1 else acc)
       addDecl (.inductDecl sparseIndUnivs numParams sparseInds false)
-      -- mkAuxConstructions (sparseInds.map (·.name) |>.toArray)
 where
   sparseConstructors (indVal : InductiveVal) (indIdx : Nat) (sparseIndsWithAsPAs : Array Expr ) (ctors : List Name) : M (List Constructor) :=
     match ctors with
@@ -242,7 +209,13 @@ where
         let type ← sparseParamConstrType indVal indIdx ctor
         Meta.check type
         let type := type.replaceFVars (← read).sparseIndFVars sparseIndsWithAsPAs
-        logInfo m!"ctor: {name} : {type}"
+        trace[Sparse.Parametricity] m!"ctor: {name} : {type}"
         return {name, type}::(← sparseConstructors indVal indIdx sparseIndsWithAsPAs tl)
 
+elab "#gen_sparse" id:ident : command => Command.liftTermElabM do
+  addSparseTranslation id.getId
+
 end SparseParametricityTranslation
+
+initialize
+  registerTraceClass `Sparse.Parametricity

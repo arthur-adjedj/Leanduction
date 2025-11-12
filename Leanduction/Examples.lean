@@ -1,20 +1,7 @@
-import Lean
 import Leanduction.SparseParametricity
 import Leanduction.SparseRecursor
 
-open Lean Elab Meta
-open NestedPositivity
-open SparseParametricityTranslation
-
-
-elab "#gen_sparse" t:term : command => Command.liftTermElabM do
-  let t ← Term.elabTerm t none
-  let e ← addSparseTranslation t.constName!
-  logInfo m!"{e}"
-
-elab "#gen_sparse_rec" t:term : command => Command.liftTermElabM do
-  let t ← Term.elabTerm t none
-  SparseRecursor.genSparseRec t.constName!
+-- TODO add better examples
 
 #gen_sparse Option
 #gen_sparse List
@@ -23,8 +10,6 @@ elab "#gen_sparse_rec" t:term : command => Command.liftTermElabM do
 inductive Weird (α : Type) : Nat → Type where
   | node : (Int → Option (Int → List (Int → Weird α 0))) → Weird α 0
 
-#check List.Sparse
-
 #gen_sparse Weird
 
 #gen_sparse_rec Weird
@@ -32,6 +17,7 @@ inductive Weird (α : Type) : Nat → Type where
 inductive Tree (α : Type) : Type where
   | node : α → (a : List (Tree α)) → Tree α
 
+#gen_sparse Tree
 #gen_sparse_rec Tree
 
 def Tree.map (f : α → β) : Tree α → Tree β
@@ -45,3 +31,6 @@ example (t : Tree α) : t.map id = t := by
     induction cih
     · rfl
     · simp [*]
+
+inductive Foo (α : Type) where
+  | bad : (α → α) → Foo α
