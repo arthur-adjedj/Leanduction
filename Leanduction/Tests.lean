@@ -1,5 +1,6 @@
 import Lean
 import Leanduction.SparseParametricity
+import Leanduction.SparseRecursor
 
 open Lean Elab Meta
 open NestedPositivity
@@ -11,10 +12,19 @@ elab "#gen_sparse" t:term : command => Command.liftTermElabM do
   let e ← addSparseTranslation t.constName!
   logInfo m!"{e}"
 
+elab "#gen_sparse_rec" t:term : command => Command.liftTermElabM do
+  let t ← Term.elabTerm t none
+  let e ← SparseRecursor.type t.constName!
+  logInfo m!"{e}"
+
+#gen_sparse_rec List
+
+
 inductive Tree (α : Type) where
   | node : List (Tree α) → Tree α
 
-set_option Elab.async false
+#gen_sparse_rec Tree
+
 
 #gen_sparse List
 set_option pp.universes true
