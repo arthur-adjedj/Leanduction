@@ -125,8 +125,8 @@ def genSparseRec (indName : Name) : TermElabM Unit := do
         }
       Term.applyAttributes (indName ++ `rec_sparse) #[{name := `induction_eliminator}]
 
-elab "#gen_sparse_rec" id:ident : command => Command.liftTermElabM do
-  SparseRecursor.genSparseRec id.getId
+elab "#gen_sparse_rec" idents:ident+ : command => Command.liftTermElabM do
+  idents.forM (SparseRecursor.genSparseRec ·.getId)
 
 end SparseRecursor
 

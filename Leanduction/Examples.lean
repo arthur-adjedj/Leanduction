@@ -5,6 +5,7 @@ import Leanduction.SparseRecursor
 
 #gen_sparse Option
 #gen_sparse List
+
 #gen_sparse_rec List
 
 inductive Weird (α : Type) : Nat → Type where
@@ -28,9 +29,7 @@ example (t : Tree α) : t.map id = t := by
   | node x children cih =>
     rw [Tree.map]
     congr
-    induction cih
-    · rfl
-    · simp [*]
+    induction cih <;> simp [*]
 
 inductive Foo (α : Type) where
   | bad : (α → α) → Foo α

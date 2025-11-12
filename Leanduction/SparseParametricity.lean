@@ -212,8 +212,8 @@ where
         trace[Sparse.Parametricity] m!"ctor: {name} : {type}"
         return {name, type}::(← sparseConstructors indVal indIdx sparseIndsWithAsPAs tl)
 
-elab "#gen_sparse" id:ident : command => Command.liftTermElabM do
-  addSparseTranslation id.getId
+elab "#gen_sparse" idents:ident+ : command => Command.liftTermElabM do
+  idents.forM (addSparseTranslation ·.getId)
 
 end SparseParametricityTranslation
 
