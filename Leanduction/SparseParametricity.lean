@@ -1,93 +1,6 @@
 import Lean
-
+import Leanduction.NestedPositivity
 open Lean Elab Meta
-
-namespace NestedPositivity
-
-structure PositivityExtState where
-  map : PHashMap Name (Array Bool) := {}
-  deriving Inhabited
-
-/- Simple local extension for caching/memoization -/
-initialize positivityExt : EnvExtension PositivityExtState ←
-  -- Using `local` allows us to use the extension in `realizeConst` without specifying `replay?`.
-  -- The resulting state can still be accessed on the generated declarations using `findStateAsync`;
-  -- see below
-  registerEnvExtension (pure {}) (asyncMode := .local)
-
-private def positivityExt.getOrSet (key : Name) (act : CoreM (Array Bool)) := do
-  match (positivityExt.getState (asyncMode := .async .asyncEnv) (asyncDecl := key) (← getEnv)).map.find? key with
-  | some r =>
-    return r
-  | none =>
-    let r ← act
-    modifyEnv fun env =>
-      positivityExt.modifyState env (fun s => { s with map := s.map.insert key r })
-    return r
-
-/--
-Throws an exception unless the `i`th parameter of the inductive type only occurrs in
-positive position.
--/
-partial def positiveParams (info : InductiveVal) : MetaM (Array Bool) := do
-  -- Consistently use the info of the first inductive in the group
-  if info.name != info.all[0]! then
-    return (← positiveParams (← getConstInfoInduct info.all[0]!))
-  let numParams := info.numParams
-  let maskRef ← IO.mkRef (Array.replicate numParams true)
-
-  positivityExt.getOrSet info.name do MetaM.run' do
-    for indName in info.all do
-      let info ← getConstInfoInduct indName
-      for con in info.ctors do
-        let con ← getConstInfoCtor con
-        forallTelescopeReducing con.type fun xs _t => do
-          let params := xs[0...numParams]
-          for i in 0...numParams do
-            unless (← isTypeFormerType (← inferType params[i]!)) do
-              maskRef.modify (Array.modify · i fun _ => false)
-          for conArg in xs[numParams...*] do
-            forallTelescopeReducing (← inferType conArg) fun conArgArgs conArgRes => do
-              let badFVars ← IO.mkRef (default : CollectFVars.State)
-              for conArgArg in conArgArgs do
-                badFVars.modify (Lean.collectFVars · (← inferType conArgArg))
-              let conArgRes ← whnf conArgRes
-              if conArgRes.hasAnyFVar (fun f => params.any (·.fvarId! == f)) then
-                  conArgRes.withApp fun fn args => do
-                    if let some p := fn.fvarId? then
-                      for arg in args do
-                        if arg.hasAnyFVar (· == p) then
-                          badFVars.modify (Lean.CollectFVars.State.add · p)
-                    else if let some fn := fn.constName? then
-                      if info.all.contains fn then
-                        -- Recursive occurrence of an inductive type of this group.
-                        -- Params must match by construction but check indices
-                        for idxArg in args[info.numParams...*] do
-                          badFVars.modify (Lean.collectFVars · idxArg)
-                      else if (← isInductive fn) then
-                        let info' ← getConstInfoInduct fn
-                        let indMask ← positiveParams info'
-                        for i in 0...info'.numParams do
-                          if !indMask[i]! then
-                            badFVars.modify (Lean.collectFVars · args[i]!)
-                      else
-                        for arg in args do
-                          badFVars.modify (Lean.collectFVars · arg)
-                    else
-                      badFVars.modify (Lean.collectFVars · conArgRes)
-
-              let badFVars : Std.TreeSet _ _ := (← badFVars.get).fvarSet
-              for i in 0...numParams do
-                if params[i]!.fvarId! ∈ badFVars then
-                  maskRef.modify (Array.modify · i fun _ => false)
-    maskRef.get
-
-end NestedPositivity
-
--- def Level.mkNaryIMax : List Level → Level
-  -- | []    => levelZero
-  -- | [u]   => u
-  -- | u::us => mkLevelIMax' u (mkNaryIMax us)
 
 namespace SparseParametricityTranslation
 
@@ -109,16 +22,17 @@ def withSparseParamIndType [Inhabited α] (info : InductiveVal) (positivityMask 
     withPredicates paramsFVars 0 #[] fun predsFVars => do
       let indNames := info.all
       let indTypes ← indNames.mapM (fun name => inferType (mkConst name (info.levelParams.map Level.param)))
-      let sparseIndTypes ← indTypes.toArray.mapM fun indTy => forallBoundedTelescope indTy info.numParams fun oldParamFVars ty => do
+      let sparseIndTypes ← indTypes.toArray.mapIdxM fun indIdx indTy => forallBoundedTelescope indTy info.numParams fun oldParamFVars ty => do
         let ty := ty.replaceFVars oldParamFVars paramsFVars
         forallTelescopeReducing ty fun indices _s => do
           -- let .sort u := s | unreachable!
           -- let predsMaxes : Level := Level.mkNaryIMax ((predUnivs.filterMap id).toList.map Level.param)
-          let indTy := (mkAppN (mkConst info.name (info.levelParams.map Level.param)) (paramsFVars ++ indices))
+          let indTy := (mkAppN (mkConst indNames[indIdx]! (info.levelParams.map Level.param)) (paramsFVars ++ indices))
           let ty ← mkArrow indTy (.sort 0 /- (mkLevelIMax' predsMaxes u)-/ )
           let ty ← mkForallFVars indices ty
           let ty ← mkForallFVars (predsFVars.filterMap id) ty
           mkForallFVars paramsFVars ty
+      sparseIndTypes.forM Meta.check
       withLocalDeclsDND (sparseIndNames.zip sparseIndTypes) fun sparseIndFVars =>
         k.run {paramsFVars, predsFVars, sparseIndNames, sparseIndFVars, sparseIndTypes}
 where
@@ -171,7 +85,6 @@ partial def sparseParamConstrType
         logInfo m!"sparseParamConstrType {ctor.name} = {ty}"
         return ty
 where
-  -- TODO remove MetaM monad once logInfo removed
   getParamPred? (params : Array Expr) (f : FVarId) : Option Expr := Id.run do
     if let some idx := params.findIdx? (·.fvarId! == f) then
       return ctx.predsFVars[idx]!
@@ -181,18 +94,21 @@ where
   withConstPreds (params args : Array Expr) (argIdx : Nat) (constPreds : Array (Option Expr)) (k : Array (Option Expr) → MetaM Expr) : MetaM Expr := do
     if argIdx < args.size then
       let arg := args[argIdx]!
-      if let some ty ← predOfArg params arg then
+      if let some ty ← predOfArg arg then
         withLocalDecl `P .default ty fun constPred =>
           withConstPreds params args (argIdx+1) (constPreds.push constPred) k
       else withConstPreds params args (argIdx+1) (constPreds.push none) k
     else
       k constPreds
 
-  predOfArg (params : Array Expr) (arg: Expr) : MetaM (Option Expr) := do
+  predOfArg (arg: Expr) : MetaM (Option Expr) := do
     let argTy ← inferType arg
     let argTy ← whnf argTy
+    let params := ctx.paramsFVars
     forallTelescope argTy fun conArgArgs conArgRes => do
-      if conArgRes.hasAnyFVar (fun f => getParamPred? params f |>.isSome) then
+      logInfo m!"conArgRes  {conArgRes}"
+                                                                        -- this could be made faster, TODO?
+      if conArgRes.hasAnyFVar (fun f => params.any (·.fvarId! == f)) || conArgRes.getUsedConstants.any info.all.contains then
         conArgRes.withApp fun fn' fnargs => do
           if let some p := fn'.fvarId? then
             if let some predFVar := getParamPred? params p then
@@ -206,13 +122,9 @@ where
             if (← isInductive fn) then
               if let some idx := info.all.findIdx? (· == fn) then
                 let ty := mkAppN ctx.sparseIndFVars[idx]! fnargs[0...params.size]
-                logInfo m!"step 1: {ty}"
                 let ty := mkAppN ty (ctx.predsFVars.filterMap id)
-                logInfo m!"step 2: {ty}"
                 let ty := mkApp ty (mkAppN arg conArgArgs)
-                logInfo m!"step 3: {ty}"
                 let ty ← mkForallFVars conArgArgs ty
-                logInfo m!"step 4: {ty}"
                 return ty
               else
                 let fnLvls := fn'.constLevels!
@@ -222,16 +134,18 @@ where
                   throwError "Failed to generate Sparse translation of {info.all[indIdx]!}: Sparse translation for nested type {fn} does not exist"
                 let nestedParamsMask ← NestedPositivity.positiveParams nestedInd
                 let nestedIndParams := fnargs[0...nestedInd.numParams]
+                logInfo m!"nestedIndParams : {nestedIndParams}"
                 let PAs ← nestedIndParams.toArray.zipIdx.mapM fun (nestedArgarg,idx) =>
                   if nestedParamsMask[idx]! then
                     forallTelescope nestedArgarg fun xs ty => do
                       withLocalDeclD `z (← mkForallFVars xs ty) fun arg => do
                         let pred ← do
-                          if let some P ← predOfArg params arg then
+                          if let some P ← predOfArg arg then
                             pure P
                           else
-                            let .sort u ← inferType ty | unreachable!
-                            pure (mkConst ``PUnit [u])
+                            pure (mkConst ``True [])
+                            -- let .sort u ← inferType ty | unreachable!
+                            -- pure (mkConst ``PUnit [u])
                         let P ← mkLambdaFVars #[arg] pred
                         return some P
                   else return none
@@ -323,6 +237,7 @@ where
         checkConstant name
         let ctor ← getConstInfoCtor ctorName
         let type ← sparseParamConstrType indVal indIdx ctor
+        Meta.check type
         let type := type.replaceFVars (← read).sparseIndFVars sparseIndsWithAsPAs
         logInfo m!"ctor: {name} : {type}"
         return {name, type}::(← sparseConstructors indVal indIdx sparseIndsWithAsPAs tl)
