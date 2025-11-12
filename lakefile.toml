@@ -1,10 +1,7 @@
 name = "Leanduction"
 version = "0.1.0"
-defaultTargets = ["leanduction"]
+defaultTargets = ["Leanduction"]
 
 [[lean_lib]]
 name = "Leanduction"
 
-[[lean_exe]]
-name = "leanduction"
-root = "Main"
