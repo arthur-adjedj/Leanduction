@@ -77,6 +77,7 @@ where
 
 def genSparseRec (indName : Name) : TermElabM Unit := do
   let info ← getConstInfoInduct indName
+  SparseParametricityTranslation.genNeededSparseTranslations info
   let indVals ← info.all.mapM getConstInfoInduct
   let recName := info.name ++ `rec
   let recInfo ← getConstInfoRec recName

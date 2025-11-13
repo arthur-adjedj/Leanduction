@@ -41,7 +41,7 @@ where
       if positivityMask[i]! then
         let ty ← inferType fvars[i]!
         let predTy ← forallTelescopeReducing ty fun llargs _ => do
-          let predTy ← mkArrow (mkAppN fvars[i]! llargs) (mkSort 0 /-(.param predUnivs[i]!.get!)-/)
+          let predTy ← mkArrow (mkAppN fvars[i]! llargs) (mkSort 0)
           mkForallFVars llargs predTy
         trace[Sparse.Parametricity] m!"predTy : {predTy}"
         withLocalDecl `P .default predTy fun pred =>
@@ -145,14 +145,12 @@ where
                             pure P
                           else
                             pure (mkConst ``True [])
-                            -- let .sort u ← inferType ty | unreachable!
-                            -- pure (mkConst ``PUnit [u])
                         let P ← mkLambdaFVars #[arg] pred
                         return some P
                   else return none
                 trace[Sparse.Parametricity] m!"PAs : {PAs}"
                 -- Is As
-                let ty := mkAppN (mkConst nestedIndSparseName fnLvls /-(PAsUnivs ++ fnLvls)-/) nestedIndParams
+                let ty := mkAppN (mkConst nestedIndSparseName fnLvls) nestedIndParams
                 -- Is As PAs
                 let ty := mkAppN ty (PAs.filterMap id)
                 -- Is As PAs Ds
@@ -171,9 +169,30 @@ def checkConstant (name : Name): MetaM Unit := do
   if env.find? name |>.isSome then
     throwError "Failed to add sparse translation, {name} already exists"
 
-def addSparseTranslation (indName : Name) : TermElabM Unit :=
+
+/--Given an inductive type `I`, get the name of every inductive type nested in `I`. To do this, we do a traversal of each nested motive of `I.rec`-/
+def getNestedIndsNames (indVal : InductiveVal) : MetaM (Std.HashSet Name) := do
+  let numInds := indVal.all.length
+  let recName := indVal.name ++ `rec
+  let recInfo ← getConstInfoRec recName
+  forallTelescope recInfo.type fun xs _ => do
+    let nestedsMotivesFVars := xs[(recInfo.numParams+numInds)...recInfo.getFirstMinorIdx]
+    nestedsMotivesFVars.foldlM (init := {}) fun acc fvar => do
+      forallTelescope (← inferType fvar) fun xs _ => do
+        let nestedType ← inferType xs[xs.size-1]!
+        return acc.insert nestedType.getAppFn.constName!
+
+mutual
+
+/--Given an inductive type `I`, generate the sparse parametricity translation  of `I`, named `I.All` -/
+partial def addSparseTranslation (indName : Name) : TermElabM Unit :=
   withOptions (fun opt => opt.set `genSizeOf false) do
   let indVal ← getConstInfoInduct indName
+  let nestedSparseToGenerate ← getNestedIndsNames indVal
+  for name in nestedSparseToGenerate do
+    unless ← isInductive (sparseName name) do
+      trace[Sparse.Parametricity] m!"generating sparse translation for nested type {name}"
+      addSparseTranslation name
   let sparseIndNames := indVal.all.toArray.map sparseName
   sparseIndNames.forM (checkConstant ·)
   Term.withLevelNames indVal.levelParams do
@@ -183,7 +202,6 @@ def addSparseTranslation (indName : Name) : TermElabM Unit :=
       trace[Sparse.Parametricity] m!"Ctx: {← read}"
       let mut sparseInds := []
       let sparseIndsWithAsPAs ← do
-
         (← read).sparseIndNames.mapM fun name  =>
           return mkConst name (sparseIndUnivs.map Level.param)
       trace[Sparse.Parametricity] m!"sparseIndsWithAsPAs : {sparseIndsWithAsPAs}"
@@ -211,6 +229,16 @@ where
         let type := type.replaceFVars (← read).sparseIndFVars sparseIndsWithAsPAs
         trace[Sparse.Parametricity] m!"ctor: {name} : {type}"
         return {name, type}::(← sparseConstructors indVal indIdx sparseIndsWithAsPAs tl)
+
+/-- Generates the sparse parametricity translation of every type that's nested inside a given inductive type. Necessary to generate both the sparse parametricity of `I`, as well as its sparse recursor.-/
+partial def genNeededSparseTranslations (indVal : InductiveVal) : TermElabM Unit := do
+  let nestedSparseToGenerate ← getNestedIndsNames indVal
+  for name in nestedSparseToGenerate do
+    unless ← isInductive (sparseName name) do
+      trace[Sparse.Parametricity] m!"generating sparse translation for nested type {name}"
+      addSparseTranslation name
+
+end
 
 elab "#gen_sparse" idents:ident+ : command => Command.liftTermElabM do
   idents.forM (addSparseTranslation ·.getId)

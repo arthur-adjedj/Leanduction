@@ -8,17 +8,11 @@ inductive Tree (α : Type) : Type where
   | node : α → (a : List (Tree α)) → Tree α
 ```
 
-First, use `#gen_sparse` to generate sparse parametricity translations for your nested types, e.g here for `List`:
-```lean
-#gen_sparse List
-/-List.Sparse.{u} (α : Type u) (P : α → Prop) : List α → Prop-/
-#check List.Sparse 
-```
-Then, you can generate a recursor for your type using `#gen_sparse_rec` as follows:
+You can generate a recursor for your type using `#gen_sparse_rec` as follows:
 ```lean
 #gen_sparse_rec Tree
 /-Tree.rec_sparse {α : Type} {motive_1 : Tree α → Prop}
-  (node : ∀ (a : α) (a_1 : List (Tree α)), List.Sparse (Tree α) motive_1 a_1 → motive_1 (Tree.node a a_1))
+  (node : ∀ (a : α) (a_1 : List (Tree α)), List.All (Tree α) motive_1 a_1 → motive_1 (Tree.node a a_1))
   (t : Tree α) : motive_1 t-/
 #check Tree.rec_sparse
 ```

@@ -1,17 +1,8 @@
 import Leanduction.SparseParametricity
 import Leanduction.SparseRecursor
 
--- TODO add better examples
-
-#gen_sparse Option
-#gen_sparse List
-
-#gen_sparse_rec List
-
 inductive Weird (α : Type) : Nat → Type where
   | node : (Int → Option (Int → List (Int → Weird α 0))) → Weird α 0
-
-#gen_sparse Weird
 
 #gen_sparse_rec Weird
 
@@ -30,6 +21,3 @@ example (t : Tree α) : t.map id = t := by
     rw [Tree.map]
     congr
     induction cih <;> simp [*]
-
-inductive Foo (α : Type) where
-  | bad : (α → α) → Foo α
