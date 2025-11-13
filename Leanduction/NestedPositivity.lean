@@ -42,11 +42,11 @@ partial def positiveParams (info : InductiveVal) : MetaM (Array Bool) := do
       for con in info.ctors do
         let con ← getConstInfoCtor con
         forallTelescopeReducing con.type fun xs _t => do
-          let params := xs[0...numParams]
-          for i in 0...numParams do
+          let params := xs[0:numParams]
+          for i in [0:numParams] do
             unless (← isTypeFormerType (← inferType params[i]!)) do
               maskRef.modify (Array.modify · i fun _ => false)
-          for conArg in xs[numParams...*] do
+          for conArg in xs[numParams:] do
             forallTelescopeReducing (← inferType conArg) fun conArgArgs conArgRes => do
               let badFVars ← IO.mkRef (default : CollectFVars.State)
               for conArgArg in conArgArgs do
@@ -62,12 +62,12 @@ partial def positiveParams (info : InductiveVal) : MetaM (Array Bool) := do
                       if info.all.contains fn then
                         -- Recursive occurrence of an inductive type of this group.
                         -- Params must match by construction but check indices
-                        for idxArg in args[info.numParams...*] do
+                        for idxArg in args[info.numParams:] do
                           badFVars.modify (Lean.collectFVars · idxArg)
                       else if (← isInductive fn) then
                         let info' ← getConstInfoInduct fn
                         let indMask ← positiveParams info'
-                        for i in 0...info'.numParams do
+                        for i in [0:info'.numParams] do
                           if !indMask[i]! then
                             badFVars.modify (Lean.collectFVars · args[i]!)
                       else
@@ -77,7 +77,7 @@ partial def positiveParams (info : InductiveVal) : MetaM (Array Bool) := do
                       badFVars.modify (Lean.collectFVars · conArgRes)
 
               let badFVars : Std.TreeSet _ _ := (← badFVars.get).fvarSet
-              for i in 0...numParams do
+              for i in [0:numParams] do
                 if params[i]!.fvarId! ∈ badFVars then
                   maskRef.modify (Array.modify · i fun _ => false)
     maskRef.get

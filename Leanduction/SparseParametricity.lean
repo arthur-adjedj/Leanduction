@@ -121,9 +121,9 @@ where
           else if let some fn := fn'.constName? then
             if (← isInductive fn) then
               if let some idx := info.all.findIdx? (· == fn) then
-                let ty := mkAppN ctx.sparseIndFVars[idx]! fnargs[0...params.size]
+                let ty := mkAppN ctx.sparseIndFVars[idx]! fnargs[0:params.size]
                 let ty := mkAppN ty (ctx.predsFVars.filterMap id)
-                let ty := mkAppN ty fnargs[params.size...*]
+                let ty := mkAppN ty fnargs[params.size:]
                 let ty := mkApp ty (mkAppN arg conArgArgs)
                 let ty ← mkForallFVars conArgArgs ty
                 return ty
@@ -134,7 +134,7 @@ where
                 unless ← isInductive nestedIndSparseName do
                   throwError "Failed to generate Sparse translation of {info.all[indIdx]!}: Sparse translation for nested type {fn} does not exist"
                 let nestedParamsMask ← NestedPositivity.positiveParams nestedInd
-                let nestedIndParams := fnargs[0...nestedInd.numParams]
+                let nestedIndParams := fnargs[0:nestedInd.numParams]
                 trace[Sparse.Parametricity] m!"nestedIndParams : {nestedIndParams}"
                 let PAs ← nestedIndParams.toArray.zipIdx.mapM fun (nestedArgarg,idx) =>
                   if nestedParamsMask[idx]! then
@@ -154,7 +154,7 @@ where
                 -- Is As PAs
                 let ty := mkAppN ty (PAs.filterMap id)
                 -- Is As PAs Ds
-                let ty := mkAppN ty fnargs[0...nestedInd.numIndices]
+                let ty := mkAppN ty fnargs[0:nestedInd.numIndices]
                 -- llargs -> Is As PAs Ds
                 let ty := mkApp ty (mkAppN arg conArgArgs)
                 -- llargs -> Is As PAs Ds
@@ -176,7 +176,7 @@ def getNestedIndsNames (indVal : InductiveVal) : MetaM (Std.HashSet Name) := do
   let recName := indVal.name ++ `rec
   let recInfo ← getConstInfoRec recName
   forallTelescope recInfo.type fun xs _ => do
-    let nestedsMotivesFVars := xs[(recInfo.numParams+numInds)...recInfo.getFirstMinorIdx]
+    let nestedsMotivesFVars := xs[(recInfo.numParams+numInds):recInfo.getFirstMinorIdx]
     nestedsMotivesFVars.foldlM (init := {}) fun acc fvar => do
       forallTelescope (← inferType fvar) fun xs _ => do
         let nestedType ← inferType xs[xs.size-1]!

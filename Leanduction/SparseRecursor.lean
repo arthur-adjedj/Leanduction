@@ -36,13 +36,13 @@ where
     motiveType.withApp fun fn args =>  do
       let nestedIndName := fn.constName!
       let nestedIndVal ← getConstInfoInduct nestedIndName
-      let nestedParams := args[0...nestedIndVal.numParams].toArray
+      let nestedParams := args[0:nestedIndVal.numParams].toArray
       let nestedParamsMask ← NestedPositivity.positiveParams nestedIndVal
       let sparseNestedIndName := SparseParametricityTranslation.sparseName fn.constName!
       let ty := mkAppN (mkConst sparseNestedIndName fn.constLevels!) nestedParams
       let preds ← nestedParams.mapIdxM fun idx e => if nestedParamsMask[idx]! then return some (← genPred e) else pure none
       let ty := mkAppN ty (preds.filterMap id)
-      let ty := mkAppN ty args[nestedIndVal.numParams...*]
+      let ty := mkAppN ty args[nestedIndVal.numParams:]
       match noMinors with
         | true => return ty
         | false => do
@@ -61,7 +61,7 @@ where
         let fnName := fn.constName!
         if let some indIdx := indVals[0]!.all.findIdx? (· == fnName) then
           let ty := realMotives[indIdx]!
-          let ty := mkAppN ty args[indVals[indIdx]!.numParams...*]
+          let ty := mkAppN ty args[indVals[indIdx]!.numParams:]
           withLocalDeclD `f param fun f => do
             let ty := mkApp ty (mkAppN f xs)
             let ty ← mkForallFVars xs ty
@@ -85,14 +85,14 @@ def genSparseRec (indName : Name) : TermElabM Unit := do
     | [] => recInfo.type
     | motiveUniv::_ => recInfo.type.instantiateLevelParams [motiveUniv] [0]
   forallTelescope recTypeToProp fun xs ty => do
-    let params := xs[0...info.numParams]
-    let indices_and_major := xs[recInfo.getFirstIndexIdx...*]
-    let motives := xs[info.numParams...info.numParams + info.all.length]
-    let nestedMotives := xs[(info.numParams + info.all.length)...recInfo.getFirstMinorIdx]
+    let params := xs[0:info.numParams]
+    let indices_and_major := xs[recInfo.getFirstIndexIdx:]
+    let motives := xs[info.numParams:info.numParams + info.all.length]
+    let nestedMotives := xs[(info.numParams + info.all.length):recInfo.getFirstMinorIdx]
     let (sparseForNestedMotives,nestedsMinors) ← replaceNestedMotivesAndMinors indVals motives nestedMotives
     trace[Sparse.Recursor] m!"sparseForNestedMotives : {sparseForNestedMotives}"
     let numMinors := indVals.foldl (init := 0) (fun acc ind => acc + ind.ctors.length)
-    let oldMinors := xs[recInfo.getFirstMinorIdx...recInfo.getFirstMinorIdx + numMinors]
+    let oldMinors := xs[recInfo.getFirstMinorIdx:recInfo.getFirstMinorIdx + numMinors]
     let lctx ← getLCtx
     let lctx := oldMinors.foldl (init := lctx) (fun lctx e => lctx.modifyLocalDecl e.fvarId! fun ldecl => ldecl.setType (Expr.replaceFVars ldecl.type nestedMotives sparseForNestedMotives))
     Meta.withLCtx' lctx do
