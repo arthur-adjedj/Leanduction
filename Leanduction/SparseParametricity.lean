@@ -4,7 +4,7 @@ open Lean Elab Meta
 
 namespace SparseParametricityTranslation
 
-def sparseName (n : Name) := n ++ `Sparse
+def sparseName (n : Name) := n ++ `All
 
 structure Context where
   paramsFVars : Array Expr
