@@ -2,6 +2,7 @@ import Lean
 
 open Lean Elab Meta
 
+/-Adapted from `https://github.com/leanprover/lean4/pull/9895`-/
 namespace NestedPositivity
 
 structure PositivityExtState where
