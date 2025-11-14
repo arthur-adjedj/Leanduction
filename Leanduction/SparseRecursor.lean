@@ -47,29 +47,38 @@ where
         | true => return ty
         | false => do
           let sparseNestedIndVal ← getConstInfoInduct sparseNestedIndName
-          let minors := sparseNestedIndVal.ctors.toArray.map fun ctorName =>
-              mkAppN (mkAppN (mkConst ctorName fn.constLevels!) nestedParams) (preds.filterMap id)
+          let minors ← sparseNestedIndVal.ctors.toArray.mapM (genMinorOf fn.constLevels! nestedParams preds)
           return (ty,minors)
+
+  genMinorOf (lvl : List Level) (nestedParams : Array Expr) (preds : Array (Option Expr)) (ctorName : Name) : MetaM Expr := do
+    let te := mkAppN (mkAppN (mkConst ctorName lvl) nestedParams) (preds.filterMap id)
+    forallTelescope (← inferType te) fun xs _ => do
+      let trivialProofsMask : Array (Bool × Expr) ← xs.mapM fun e => do
+        forallTelescopeReducing (← inferType e) fun xs ty => do if ty.isTrue then pure (true, ← mkLambdaFVars xs (mkConst `True.intro)) else pure (false,e)
+      let teArgs := trivialProofsMask.map (·.2)
+      let te := mkAppN te teArgs
+      let xs := trivialProofsMask.filterMap (fun | (false,e) => some e | _ => none)
+      let te ← mkLambdaFVars xs te
+      return te.tryEtaReduce
 
   genPred (param : Expr) : MetaM Expr := do
     trace[Sparse.Recursor] m!"genPred {param}"
-    forallTelescope param fun xs ty => do
-      let fallback := mkLambdaFVars xs (mkConst `True)
-      if !(param.getUsedConstants.any indVals[0]!.all.contains) then
-        return (← fallback)
-      ty.withApp fun fn args => do
-        let fnName := fn.constName!
-        if let some indIdx := indVals[0]!.all.findIdx? (· == fnName) then
-          let ty := realMotives[indIdx]!
-          let ty := mkAppN ty args[indVals[indIdx]!.numParams:]
-          withLocalDeclD `f param fun f => do
+    withLocalDeclD `p param fun f => do
+      forallTelescope param fun xs ty => do
+        let fallback := do mkLambdaFVars xs (← mkLambdaFVars #[f] (mkConst `True))
+        if !(param.getUsedConstants.any indVals[0]!.all.contains) then
+          return (← fallback)
+        ty.withApp fun fn args => do
+          let fnName := fn.constName!
+          if let some indIdx := indVals[0]!.all.findIdx? (· == fnName) then
+            let ty := realMotives[indIdx]!
+            let ty := mkAppN ty args[indVals[indIdx]!.numParams:]
             let ty := mkApp ty (mkAppN f xs)
             let ty ← mkForallFVars xs ty
             let motive ← mkLambdaFVars #[f] ty
             return motive.tryEtaReduce
-        else
-          let ty ← nestedMotiveAndMinors ty true
-          withLocalDeclD `f param fun f => do
+          else
+            let ty ← nestedMotiveAndMinors ty true
             let ty := mkApp ty (mkAppN f xs)
             let ty ← mkForallFVars xs ty
             let motive ← mkLambdaFVars #[f] ty
