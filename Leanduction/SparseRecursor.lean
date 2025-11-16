@@ -1,17 +1,17 @@
 import Lean
+import Leanduction.Util
 import Leanduction.NestedPositivity
 import Leanduction.SparseParametricity
 
 open Lean Elab Meta
-
-
-/-- Transforms expressions of shape `fun x => f x` to `f` when x doesn't appear in `f`, useful to generate better looking recursors-/
-partial def Lean.Expr.tryEtaReduce (e: Expr): Expr :=
-  match e with
-    | .lam _ _ (.app f (.bvar 0)) _ => if f.hasLooseBVar 0 then e else f |>.lowerLooseBVars 0 1 |>.tryEtaReduce
-    | _ => e
+open Parser.Tactic (optConfig)
 
 namespace SparseRecursor
+
+structure Config where
+  indElim : Bool := true
+
+declare_command_config_elab elabSparseConfig SparseRecursor.Config
 
 partial def replaceNestedMotivesAndMinors (indVals : List InductiveVal) (realMotives : Array Expr) (nestedMotives : Array Expr) : MetaM (Array Expr × Array Expr) := do
   go 0 #[] #[]
@@ -84,7 +84,31 @@ where
             let motive ← mkLambdaFVars #[f] ty
             return motive.tryEtaReduce
 
-def genSparseRec (indName : Name) : TermElabM Unit := do
+/--Generate the sparse recursor for an inductive type `Ind` using `#gen_sparse_rec Ind`.
+This recursor is then used by the `induction` tactic, which usually fails when trying to induct on nested inductive types.
+To provide a custom name `indrec` to the recursor, use `#gen_sparse_rec Ind as indrec`
+If you do not want the `induction` tactic to make use of the generated recursor by default, use `#gen_sparse_rec -indElim Ind`.
+
+Example:
+```
+inductive Tree (α : Type) :  Type where
+  | node : α → List (Tree α) → Tree α
+
+#gen_sparse_rec Tree
+
+def Tree.map (f : α → β) : Tree α → Tree β
+  | node x children => .node (f x) (children.map (Tree.map f))
+
+example (t : Tree α) : t.map id = t := by
+  induction t with --uses the generated sparse recursor instead of failing
+  | node x children cih =>
+    rw [Tree.map]
+    congr
+    induction cih <;> simp [*]
+```
+-/
+def genSparseRec (cfg : Config) (indName sparseRecName: Name) : TermElabM Unit := do
+  checkConstant sparseRecName
   let info ← getConstInfoInduct indName
   SparseParametricityTranslation.genNeededSparseTranslations info
   let indVals ← info.all.mapM getConstInfoInduct
@@ -126,17 +150,25 @@ def genSparseRec (indName : Name) : TermElabM Unit := do
       trace[Sparse.Recursor] m!"term : {te}"
       Meta.check te
       addDecl <| .defnDecl {
-        name := indName ++ `rec_sparse
+        name := sparseRecName
         levelParams := match recInfo.levelParams with | [] => [] | _::tl => tl
         type := ty
         value := te
         hints := .regular 0 --TODO figure out how important that is ?
         safety := .safe
         }
-      Term.applyAttributes (indName ++ `rec_sparse) #[{name := `induction_eliminator}]
+      if cfg.indElim then
+        Term.applyAttributes sparseRecName #[{name := `induction_eliminator}]
 
-elab "#gen_sparse_rec" idents:ident+ : command => Command.liftTermElabM do
-  idents.forM (SparseRecursor.genSparseRec ·.getId)
+@[inherit_doc genSparseRec]
+syntax "#gen_sparse_rec" optConfig ident ("as" ident)? : command
+
+elab_rules : command
+  | `(command| #gen_sparse_rec $cfg:optConfig $indName:ident $[as $recName:ident]? ) => do
+  let cfg ← elabSparseConfig cfg
+  let indName := indName.getId
+  let sparseRecName := recName.map TSyntax.getId |>.getD (indName ++ `rec_sparse)
+  Command.liftTermElabM <| SparseRecursor.genSparseRec cfg indName sparseRecName
 
 end SparseRecursor
 

@@ -1,4 +1,5 @@
 import Lean
+import Leanduction.Util
 import Leanduction.NestedPositivity
 open Lean Elab Meta
 
@@ -163,12 +164,6 @@ where
             else return none
           else return none
       else return none
-
-def checkConstant (name : Name): MetaM Unit := do
-  let env ← getEnv
-  if env.find? name |>.isSome then
-    throwError "Failed to add sparse translation, {name} already exists"
-
 
 /--Given an inductive type `I`, get the name of every inductive type nested in `I`. To do this, we do a traversal of each nested motive of `I.rec`-/
 def getNestedIndsNames (indVal : InductiveVal) : MetaM (Std.HashSet Name) := do
