@@ -177,11 +177,44 @@ def getNestedIndsNames (indVal : InductiveVal) : MetaM (Std.HashSet Name) := do
         let nestedType ← inferType xs[xs.size-1]!
         return acc.insert nestedType.getAppFn.constName!
 
+/--
+  For nested inductive types, the kernel adds a variable number of auxiliary recursors.
+  Let the elaborator know about them as well. (Other auxiliaries have already been
+  registered by `addDecl` via `Declaration.getNames`.)
+  NOTE: If we want to make inductive elaboration parallel, this should switch to using
+  reserved names.
+-/
+def addAuxRecs (indTypes : List InductiveType) : M Unit := do
+  for indType in indTypes do
+    let mut i := 1
+    while true do
+      let auxRecName := indType.name ++ `rec |>.appendIndexAfter i
+      let env ← getEnv
+      let some const := env.toKernelEnv.find? auxRecName | break
+      let res ← env.addConstAsync auxRecName .recursor
+      res.commitConst res.asyncEnv (info? := const)
+      res.commitCheckEnv res.asyncEnv
+      setEnv res.mainEnv
+      i := i + 1
+
+def mkAuxConstructions (declNames : Array Name) : TermElabM Unit := do
+  for n in declNames do
+    mkRecOn n
+    mkCasesOn n
+    mkCtorIdx n
+    mkCtorElim n
+    mkNoConfusion n
+    mkBelow n
+  for n in declNames do
+    mkBRecOn n
+  mkSizeOfInstances declNames[0]!
+  for n in declNames do
+    mkInjectiveTheorems n
+
 mutual
 
 /--Given an inductive type `I`, generate the sparse parametricity translation  of `I`, named `I.All` -/
-partial def addSparseTranslation (indName : Name) : TermElabM Unit :=
-  withOptions (fun opt => opt.set `genSizeOf false) do
+partial def addSparseTranslation (indName : Name) : TermElabM Unit := do
   let indVal ← getConstInfoInduct indName
   let nestedSparseToGenerate ← getNestedIndsNames indVal
   for name in nestedSparseToGenerate do
@@ -211,6 +244,8 @@ partial def addSparseTranslation (indName : Name) : TermElabM Unit :=
         sparseInds := sparseInd::sparseInds
       let numParams := indVal.numParams + positivityMask.foldl (init := 0) (fun acc b => if b then acc+1 else acc)
       addDecl (.inductDecl sparseIndUnivs numParams sparseInds false)
+      addAuxRecs sparseInds
+    mkAuxConstructions sparseIndNames
 where
   sparseConstructors (indVal : InductiveVal) (indIdx : Nat) (sparseIndsWithAsPAs : Array Expr ) (ctors : List Name) : M (List Constructor) :=
     match ctors with
