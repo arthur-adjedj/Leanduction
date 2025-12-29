@@ -44,7 +44,7 @@ where
         let predTy ← forallTelescopeReducing ty fun llargs _ => do
           let predTy ← mkArrow (mkAppN fvars[i]! llargs) (mkSort 0)
           mkForallFVars llargs predTy
-        trace[Sparse.Parametricity] m!"predTy : {predTy}"
+        trace[Leanduction.Parametricity] m!"predTy : {predTy}"
         withLocalDecl `P .default predTy fun pred =>
           withPredicates fvars (i+1) (preds.push pred) k
       else
@@ -83,7 +83,7 @@ partial def sparseParamConstrType
         let ty ← mkForallFVars (ctx.predsFVars.filterMap id) ty
         -- ty := As -> PAs -> Args -> PArgs -> IP As PAs
         let ty ← mkForallFVars ctx.paramsFVars ty
-        trace[Sparse.Parametricity] m!"sparseParamConstrType {ctor.name} = {ty}"
+        trace[Leanduction.Parametricity] m!"sparseParamConstrType {ctor.name} = {ty}"
         return ty
 where
   getParamPred? (params : Array Expr) (f : FVarId) : Option Expr := Id.run do
@@ -107,7 +107,7 @@ where
     let argTy ← whnf argTy
     let params := ctx.paramsFVars
     forallTelescope argTy fun conArgArgs conArgRes => do
-      trace[Sparse.Parametricity] m!"conArgRes  {conArgRes}"
+      trace[Leanduction.Parametricity] m!"conArgRes  {conArgRes}"
                                                                       -- this could be made faster, TODO?
       if conArgRes.hasAnyFVar (fun f => params.any (·.fvarId! == f)) || conArgRes.getUsedConstants.any info.all.contains then
         conArgRes.withApp fun fn' fnargs => do
@@ -136,7 +136,7 @@ where
                   throwError "Failed to generate Sparse translation of {info.all[indIdx]!}: Sparse translation for nested type {fn} does not exist"
                 let nestedParamsMask ← NestedPositivity.positiveParams nestedInd
                 let nestedIndParams := fnargs[0:nestedInd.numParams]
-                trace[Sparse.Parametricity] m!"nestedIndParams : {nestedIndParams}"
+                trace[Leanduction.Parametricity] m!"nestedIndParams : {nestedIndParams}"
                 let PAs ← nestedIndParams.toArray.zipIdx.mapM fun (nestedArgarg,idx) =>
                   if nestedParamsMask[idx]! then
                     forallTelescope nestedArgarg fun xs ty => do
@@ -149,7 +149,7 @@ where
                         let P ← mkLambdaFVars #[arg] pred
                         return some P
                   else return none
-                trace[Sparse.Parametricity] m!"PAs : {PAs}"
+                trace[Leanduction.Parametricity] m!"PAs : {PAs}"
                 -- Is As
                 let ty := mkAppN (mkConst nestedIndSparseName fnLvls) nestedIndParams
                 -- Is As PAs
@@ -219,7 +219,7 @@ partial def addSparseTranslation (indName : Name) : TermElabM Unit := do
   let nestedSparseToGenerate ← getNestedIndsNames indVal
   for name in nestedSparseToGenerate do
     unless ← isInductive (sparseName name) do
-      trace[Sparse.Parametricity] m!"generating sparse translation for nested type {name}"
+      trace[Leanduction.Parametricity] m!"generating sparse translation for nested type {name}"
       addSparseTranslation name
   let sparseIndNames := indVal.all.toArray.map sparseName
   sparseIndNames.forM (checkConstant ·)
@@ -227,12 +227,12 @@ partial def addSparseTranslation (indName : Name) : TermElabM Unit := do
     let positivityMask ← NestedPositivity.positiveParams indVal
     let sparseIndUnivs := indVal.levelParams
     withSparseParamIndType indVal positivityMask sparseIndNames $ do
-      trace[Sparse.Parametricity] m!"Ctx: {← read}"
+      trace[Leanduction.Parametricity] m!"Ctx: {← read}"
       let mut sparseInds := []
       let sparseIndsWithAsPAs ← do
         (← read).sparseIndNames.mapM fun name  =>
           return mkConst name (sparseIndUnivs.map Level.param)
-      trace[Sparse.Parametricity] m!"sparseIndsWithAsPAs : {sparseIndsWithAsPAs}"
+      trace[Leanduction.Parametricity] m!"sparseIndsWithAsPAs : {sparseIndsWithAsPAs}"
       for (indName,indIdx) in indVal.all.zipIdx do
         let indVal ← getConstInfoInduct indName
         let sparseInd : InductiveType ← do
@@ -257,7 +257,7 @@ where
         let type ← sparseParamConstrType indVal indIdx ctor
         Meta.check type
         let type := type.replaceFVars (← read).sparseIndFVars sparseIndsWithAsPAs
-        trace[Sparse.Parametricity] m!"ctor: {name} : {type}"
+        trace[Leanduction.Parametricity] m!"ctor: {name} : {type}"
         return {name, type}::(← sparseConstructors indVal indIdx sparseIndsWithAsPAs tl)
 
 /-- Generates the sparse parametricity translation of every type that's nested inside a given inductive type. Necessary to generate both the sparse parametricity of `I`, as well as its sparse recursor.-/
@@ -265,7 +265,7 @@ partial def genNeededSparseTranslations (indVal : InductiveVal) : TermElabM Unit
   let nestedSparseToGenerate ← getNestedIndsNames indVal
   for name in nestedSparseToGenerate do
     unless ← isInductive (sparseName name) do
-      trace[Sparse.Parametricity] m!"generating sparse translation for nested type {name}"
+      trace[Leanduction.Parametricity] m!"generating sparse translation for nested type {name}"
       addSparseTranslation name
 
 end
@@ -276,4 +276,4 @@ elab "#gen_sparse" idents:ident+ : command => Command.liftTermElabM do
 end SparseParametricityTranslation
 
 initialize
-  registerTraceClass `Sparse.Parametricity
+  registerTraceClass `Leanduction.Parametricity (inherited := true)

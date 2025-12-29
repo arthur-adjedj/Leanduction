@@ -26,13 +26,13 @@ where
         let ty := mkApp ty major
         let ty ← mkLambdaFVars xs ty
         return (ty.tryEtaReduce,minors)
-      trace[Sparse.Recursor] m!"nestedMotive : {nestedMotiveAndMinors}"
+      trace[Leanduction.Recursor] m!"nestedMotive : {nestedMotiveAndMinors}"
       go (i+1) (motivesReplacements.push nestedMotiveAndMinors.1) (minorsReplacements.append nestedMotiveAndMinors.2)
     else
       return (motivesReplacements,minorsReplacements)
 
   nestedMotiveAndMinors (motiveType : Expr) (noMinors : Bool) : MetaM (if noMinors then Expr else Expr × Array Expr) := do
-    trace[Sparse.Recursor] m!"nestedMotive {motiveType}"
+    trace[Leanduction.Recursor] m!"nestedMotive {motiveType}"
     motiveType.withApp fun fn args =>  do
       let nestedIndName := fn.constName!
       let nestedIndVal ← getConstInfoInduct nestedIndName
@@ -62,7 +62,7 @@ where
       return te.tryEtaReduce
 
   genPred (param : Expr) : MetaM Expr := do
-    trace[Sparse.Recursor] m!"genPred {param}"
+    trace[Leanduction.Recursor] m!"genPred {param}"
     withLocalDeclD `p param fun f => do
       forallTelescope param fun xs ty => do
         let fallback := do mkLambdaFVars xs (← mkLambdaFVars #[f] (mkConst `True))
@@ -123,7 +123,7 @@ def genSparseRec (cfg : Config) (indName sparseRecName: Name) : TermElabM Unit :
     let motives := xs[info.numParams:info.numParams + info.all.length]
     let nestedMotives := xs[(info.numParams + info.all.length):recInfo.getFirstMinorIdx]
     let (sparseForNestedMotives,nestedsMinors) ← replaceNestedMotivesAndMinors indVals motives nestedMotives
-    trace[Sparse.Recursor] m!"sparseForNestedMotives : {sparseForNestedMotives}"
+    trace[Leanduction.Recursor] m!"sparseForNestedMotives : {sparseForNestedMotives}"
     let numMinors := indVals.foldl (init := 0) (fun acc ind => acc + ind.ctors.length)
     let oldMinors := xs[recInfo.getFirstMinorIdx:recInfo.getFirstMinorIdx + numMinors]
     let lctx ← getLCtx
@@ -147,7 +147,7 @@ def genSparseRec (cfg : Config) (indName sparseRecName: Name) : TermElabM Unit :
       let te ← mkLambdaFVars minors te
       let te ← mkLambdaFVars motives te
       let te ← mkLambdaFVars params te
-      trace[Sparse.Recursor] m!"term : {te}"
+      trace[Leanduction.Recursor] m!"term : {te}"
       Meta.check te
       addDecl <| .defnDecl {
         name := sparseRecName
@@ -173,4 +173,4 @@ elab_rules : command
 end SparseRecursor
 
 initialize
-  registerTraceClass `Sparse.Recursor
+  registerTraceClass `Leanduction.Recursor (inherited := true)

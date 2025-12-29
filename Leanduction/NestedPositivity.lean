@@ -31,6 +31,7 @@ Throws an exception unless the `i`th parameter of the inductive type only occurr
 positive position.
 -/
 partial def positiveParams (info : InductiveVal) : MetaM (Array Bool) := do
+  withTraceNode `Leanduction.NestedPositivity (fun e => return m!"{exceptEmoji e} positiveParams {info.name} = {e.toOption}") do
   -- Consistently use the info of the first inductive in the group
   if info.name != info.all[0]! then
     return (← positiveParams (← getConstInfoInduct info.all[0]!))
@@ -84,3 +85,6 @@ partial def positiveParams (info : InductiveVal) : MetaM (Array Bool) := do
     maskRef.get
 
 end NestedPositivity
+
+initialize
+  registerTraceClass `Leanduction.NestedPositivity (inherited := true)
