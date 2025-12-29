@@ -55,29 +55,27 @@ partial def positiveParams (info : InductiveVal) : MetaM (Array Bool) := do
                 badFVars.modify (Lean.collectFVars · (← inferType conArgArg))
               let conArgRes ← whnf conArgRes
               if conArgRes.hasAnyFVar (fun f => params.any (·.fvarId! == f)) then
-                  conArgRes.withApp fun fn args => do
-                    if let some p := fn.fvarId? then
-                      for arg in args do
-                        if arg.hasAnyFVar (· == p) then
-                          badFVars.modify (Lean.CollectFVars.State.add · p)
-                    else if let some fn := fn.constName? then
-                      if info.all.contains fn then
-                        -- Recursive occurrence of an inductive type of this group.
-                        -- Params must match by construction but check indices
-                        for idxArg in args[info.numParams:] do
-                          badFVars.modify (Lean.collectFVars · idxArg)
-                      else if (← isInductive fn) then
-                        let info' ← getConstInfoInduct fn
-                        let indMask ← positiveParams info'
-                        for i in [0:info'.numParams] do
-                          if !indMask[i]! then
-                            badFVars.modify (Lean.collectFVars · args[i]!)
-                      else
-                        for arg in args do
-                          badFVars.modify (Lean.collectFVars · arg)
+                conArgRes.withApp fun fn args => do
+                  if fn.isFVar then
+                    for arg in args do
+                      badFVars.modify (Lean.collectFVars · arg)
+                  else if let some fn := fn.constName? then
+                    if info.all.contains fn then
+                      -- Recursive occurrence of an inductive type of this group.
+                      -- Params must match by construction but check indices
+                      for idxArg in args[info.numParams:] do
+                        badFVars.modify (Lean.collectFVars · idxArg)
+                    else if (← isInductive fn) then
+                      let info' ← getConstInfoInduct fn
+                      let indMask ← positiveParams info'
+                      for i in [0:info'.numParams] do
+                        if !indMask[i]! then
+                          badFVars.modify (Lean.collectFVars · args[i]!)
                     else
-                      badFVars.modify (Lean.collectFVars · conArgRes)
-
+                      for arg in args do
+                        badFVars.modify (Lean.collectFVars · arg)
+                  else
+                    badFVars.modify (Lean.collectFVars · conArgRes)
               let badFVars : Std.TreeSet _ _ := (← badFVars.get).fvarSet
               for i in [0:numParams] do
                 if params[i]!.fvarId! ∈ badFVars then
