@@ -1,7 +1,10 @@
 name = "Leanduction"
 version = "0.1.0"
 defaultTargets = ["Leanduction"]
+testDriver  = "LeanductionTests"
 
 [[lean_lib]]
 name = "Leanduction"
 
+[[lean_lib]]
+name = "LeanductionTests"
