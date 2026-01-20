@@ -1,6 +1,8 @@
-import Lean
-
+module
+public meta import Lean
 open Lean Elab Meta
+
+public meta section
 
 def checkConstant (name : Name): MetaM Unit := do
   if (← getEnv).contains name then

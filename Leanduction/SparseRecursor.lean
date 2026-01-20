@@ -1,19 +1,21 @@
-import Lean
-import Leanduction.Util
-import Leanduction.NestedPositivity
-import Leanduction.SparseParametricity
+module
+
+public meta import Leanduction.Util
+public meta import Leanduction.NestedPositivity
+public meta import Leanduction.SparseParametricity
 
 open Lean Elab Meta
 open Parser.Tactic (optConfig)
 
+meta section
+
 namespace SparseRecursor
 
-structure Config where
+public structure Config where
   indElim : Bool := true
 
 declare_command_config_elab elabSparseConfig SparseRecursor.Config
-
-partial def replaceNestedMotivesAndMinors (indVals : List InductiveVal) (realMotives : Array Expr) (nestedMotives : Array Expr) : MetaM (Array Expr × Array Expr) := do
+public partial def replaceNestedMotivesAndMinors (indVals : List InductiveVal) (realMotives : Array Expr) (nestedMotives : Array Expr) : MetaM (Array Expr × Array Expr) := do
   go 0 #[] #[]
 where
   go (i : Nat) (motivesReplacements minorsReplacements : Array Expr): MetaM (Array Expr × Array Expr) :=
@@ -107,7 +109,7 @@ example (t : Tree α) : t.map id = t := by
     induction cih <;> simp [*]
 ```
 -/
-def genSparseRec (cfg : Config) (indName sparseRecName: Name) : TermElabM Unit := do
+public def genSparseRec (cfg : Config) (indName sparseRecName: Name) : TermElabM Unit := do
   checkConstant sparseRecName
   let info ← getConstInfoInduct indName
   SparseParametricityTranslation.genNeededSparseTranslations info

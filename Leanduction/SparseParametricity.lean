@@ -1,11 +1,14 @@
-import Lean
-import Leanduction.Util
-import Leanduction.NestedPositivity
+module
+public meta import Lean
+public meta import Leanduction.Util
+public meta import Leanduction.NestedPositivity
 open Lean Elab Meta
+
+meta section
 
 namespace SparseParametricityTranslation
 
-def sparseName (n : Name) := n ++ `All
+public def sparseName (n : Name) := n ++ `All
 
 structure Context where
   paramsFVars : Array Expr
@@ -201,8 +204,8 @@ def mkAuxConstructions (declNames : Array Name) : TermElabM Unit := do
   for n in declNames do
     mkRecOn n
     mkCasesOn n
-    mkCtorIdx n
-    mkCtorElim n
+    -- mkCtorIdx n
+    -- mkCtorElim n
     mkNoConfusion n
     mkBelow n
   for n in declNames do
@@ -261,7 +264,7 @@ where
         return {name, type}::(← sparseConstructors indVal indIdx sparseIndsWithAsPAs tl)
 
 /-- Generates the sparse parametricity translation of every type that's nested inside a given inductive type. Necessary to generate both the sparse parametricity of `I`, as well as its sparse recursor.-/
-partial def genNeededSparseTranslations (indVal : InductiveVal) : TermElabM Unit := do
+public partial def genNeededSparseTranslations (indVal : InductiveVal) : TermElabM Unit := do
   let nestedSparseToGenerate ← getNestedIndsNames indVal
   for name in nestedSparseToGenerate do
     unless ← isInductive (sparseName name) do

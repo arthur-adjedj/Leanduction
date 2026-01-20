@@ -1,11 +1,14 @@
-import Lean
+module
+public meta import Lean
 
 open Lean Elab Meta
+
+meta section
 
 /-Adapted from `https://github.com/leanprover/lean4/pull/9895`-/
 namespace NestedPositivity
 
-structure PositivityExtState where
+public structure PositivityExtState where
   map : PHashMap Name (Array Bool) := {}
   deriving Inhabited
 
@@ -30,7 +33,7 @@ private def positivityExt.getOrSet (key : Name) (act : CoreM (Array Bool)) := do
 Throws an exception unless the `i`th parameter of the inductive type only occurrs in
 positive position.
 -/
-partial def positiveParams (info : InductiveVal) : MetaM (Array Bool) := do
+public partial def positiveParams (info : InductiveVal) : MetaM (Array Bool) := do
   withTraceNode `Leanduction.NestedPositivity (fun e => return m!"{exceptEmoji e} positiveParams {info.name} = {e.toOption}") do
   -- Consistently use the info of the first inductive in the group
   if info.name != info.all[0]! then
