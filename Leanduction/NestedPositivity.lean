@@ -1,5 +1,10 @@
 module
-public meta import Lean
+public meta import Init.Grind.Cases
+public import Lean.Data.PersistentHashMap
+public meta import Lean.Meta.InferType
+public meta import Lean.Util.CollectFVars
+public meta import Std.Do.Triple.SpecLemmas
+import Lean.Message
 
 open Lean Elab Meta
 

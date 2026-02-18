@@ -1,7 +1,16 @@
 module
-public meta import Lean
-public meta import Leanduction.Util
-public meta import Leanduction.NestedPositivity
+public meta import Init.Grind.Cases
+public meta import Lean.Elab.Command
+public meta import Std.Do.Triple.SpecLemmas
+import Lean.Meta.Basic
+public meta import Lean.Meta.Constructions.BRecOn
+public meta import Lean.Meta.Constructions.CasesOn
+public meta import Lean.Meta.Constructions.NoConfusion
+public meta import Lean.Meta.Constructions.RecOn
+public meta import Lean.Meta.Injective
+public meta import Lean.Meta.SizeOf
+public import Leanduction.NestedPositivity
+public import Leanduction.Util
 open Lean Elab Meta
 
 meta section

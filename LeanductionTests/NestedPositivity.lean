@@ -2,8 +2,6 @@ import Leanduction.NestedPositivity
 import Lean
 open Lean
 
-
-
 elab "#get_mask"  i:ident : command => do
   let indName := i.getId
   let indVal ← getConstInfoInduct indName

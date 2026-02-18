@@ -1,5 +1,6 @@
 module
-public meta import Lean
+public meta import Lean.Meta.Basic
+import Lean.Exception
 open Lean Elab Meta
 
 public meta section

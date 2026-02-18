@@ -1,8 +1,11 @@
 module
 
-public meta import Leanduction.Util
-public meta import Leanduction.NestedPositivity
-public meta import Leanduction.SparseParametricity
+public meta import Init.Grind.Ext
+public import Leanduction.SparseParametricity
+public import Leanduction.Util
+public import Lean.Elab.Tactic.Config
+meta import Lean.Elab.Tactic.Config
+import Leanduction.NestedPositivity
 
 open Lean Elab Meta
 open Parser.Tactic (optConfig)
