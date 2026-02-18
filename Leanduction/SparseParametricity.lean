@@ -283,7 +283,9 @@ public partial def genNeededSparseTranslations (indVal : InductiveVal) : TermEla
 end
 
 elab "#gen_sparse" idents:ident+ : command => Command.liftTermElabM do
-  idents.forM (addSparseTranslation ·.getId)
+  idents.forM fun indName => do
+    let name ← resolveGlobalConstNoOverload indName
+    addSparseTranslation name
 
 end SparseParametricityTranslation
 

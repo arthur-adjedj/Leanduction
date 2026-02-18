@@ -171,7 +171,7 @@ syntax "#gen_sparse_rec" optConfig ident ("as" ident)? : command
 elab_rules : command
   | `(command| #gen_sparse_rec $cfg:optConfig $indName:ident $[as $recName:ident]? ) => do
   let cfg ← elabSparseConfig cfg
-  let indName := indName.getId
+  let indName ← resolveGlobalConstNoOverload indName
   let sparseRecName := recName.map TSyntax.getId |>.getD (indName ++ `rec_sparse)
   Command.liftTermElabM <| SparseRecursor.genSparseRec cfg indName sparseRecName
 
