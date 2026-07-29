@@ -48,7 +48,7 @@ where
       let preds ← nestedParams.mapIdxM fun idx e => if nestedParamsMask[idx]! then return some (← genPred e) else pure none
       let ty := mkAppN ty (preds.filterMap id)
       let ty := mkAppN ty args[nestedIndVal.numParams:]
-      match noMinors with
+      match (dependent := true) noMinors with
         | true => return ty
         | false => do
           let sparseNestedIndVal ← getConstInfoInduct sparseNestedIndName
