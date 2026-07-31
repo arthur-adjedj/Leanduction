@@ -1,2 +1,2 @@
-import LeanductionTests.NestedPositivity
-import LeanductionTests.Examples
+import LeanductionTests.Tests
+import LeanductionTests.Example
