@@ -32,3 +32,8 @@ example (t : Tree α) : t.map id = t := by
 
 The algorithms used in this library are described in the following research article:
 > Thomas Lamiaux, Yannick Forster, Matthieu Sozeau, and Nicolas Tabareau. 2026. Nested Inductive Types: Justified and Usable Nested Inductive Types in Lean and Rocq. Proc. ACM Program. Lang. 10, PLDI, Article 244 (June 2026), 24 pages. https://doi.org/10.1145/3808322
+
+
+## Missing feature(s):
+
+The generated recursors currently only eliminate to `Prop` rather than arbitrary `Sort`s like the usual recursors. Avoiding this issue would imply inserting various `ULift`s inside the generated recursors' signatures, which would make their uses in proofs more cumbersome. 
