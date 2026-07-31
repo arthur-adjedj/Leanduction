@@ -15,6 +15,7 @@ meta section
 namespace SparseRecursor
 
 public structure Config where
+  /-- If true, tag the generated eliminator with the `induction_eliminator` attribute, making the eliminator be the one used by default when doing `induction` on this type.-/
   indElim : Bool := true
 
 declare_command_config_elab elabSparseConfig SparseRecursor.Config
@@ -30,7 +31,7 @@ where
         let (ty,minors) ← nestedMotiveAndMinors majorType false
         let ty := mkApp ty major
         let ty ← mkLambdaFVars xs ty
-        return (ty.tryEtaReduce,minors)
+        return (ty.tryEtaBetaReduce ,minors)
       trace[Leanduction.Recursor] m!"nestedMotive : {nestedMotiveAndMinors}"
       go (i+1) (motivesReplacements.push nestedMotiveAndMinors.1) (minorsReplacements.append nestedMotiveAndMinors.2)
     else
@@ -39,21 +40,21 @@ where
   nestedMotiveAndMinors (motiveType : Expr) (noMinors : Bool) : MetaM (if noMinors then Expr else Expr × Array Expr) := do
     trace[Leanduction.Recursor] m!"nestedMotive {motiveType}"
     motiveType.withApp fun fn args =>  do
-      let nestedIndName := fn.constName!
-      let nestedIndVal ← getConstInfoInduct nestedIndName
-      let nestedParams := args[0:nestedIndVal.numParams].toArray
-      let nestedParamsMask ← NestedPositivity.positiveParams nestedIndVal
-      let sparseNestedIndName := SparseParametricityTranslation.sparseName fn.constName!
-      let ty := mkAppN (mkConst sparseNestedIndName fn.constLevels!) nestedParams
-      let preds ← nestedParams.mapIdxM fun idx e => if nestedParamsMask[idx]! then return some (← genPred e) else pure none
-      let ty := mkAppN ty (preds.filterMap id)
-      let ty := mkAppN ty args[nestedIndVal.numParams:]
-      match (dependent := true) noMinors with
-        | true => return ty
-        | false => do
-          let sparseNestedIndVal ← getConstInfoInduct sparseNestedIndName
-          let minors ← sparseNestedIndVal.ctors.toArray.mapM (genMinorOf fn.constLevels! nestedParams preds)
-          return (ty,minors)
+    let nestedIndName := fn.constName!
+    let nestedIndVal ← getConstInfoInduct nestedIndName
+    let nestedParams := args[0:nestedIndVal.numParams].toArray
+    let nestedParamsMask ← NestedPositivity.positiveParams nestedIndVal
+    let sparseNestedIndName := SparseParametricityTranslation.sparseName fn.constName!
+    let ty := mkAppN (mkConst sparseNestedIndName fn.constLevels!) nestedParams
+    let preds ← nestedParams.mapIdxM fun idx e => if nestedParamsMask[idx]! then return some (← genPred e) else pure none
+    let ty := mkAppN ty (preds.filterMap id)
+    let ty := mkAppN ty args[nestedIndVal.numParams:]
+    match (dependent := true) noMinors with
+      | true => return ty
+      | false => do
+        let sparseNestedIndVal ← getConstInfoInduct sparseNestedIndName
+        let minors ← sparseNestedIndVal.ctors.toArray.mapM (genMinorOf fn.constLevels! nestedParams preds)
+        return (ty,minors)
 
   genMinorOf (lvl : List Level) (nestedParams : Array Expr) (preds : Array (Option Expr)) (ctorName : Name) : MetaM Expr := do
     let te := mkAppN (mkAppN (mkConst ctorName lvl) nestedParams) (preds.filterMap id)
@@ -64,30 +65,30 @@ where
       let te := mkAppN te teArgs
       let xs := trivialProofsMask.filterMap (fun | (false,e) => some e | _ => none)
       let te ← mkLambdaFVars xs te
-      return te.tryEtaReduce
+      return te.tryEtaBetaReduce
 
   genPred (param : Expr) : MetaM Expr := do
     trace[Leanduction.Recursor] m!"genPred {param}"
     withLocalDeclD `p param fun f => do
-      forallTelescope param fun xs ty => do
-        let fallback := do mkLambdaFVars xs (← mkLambdaFVars #[f] (mkConst `True))
-        if !(param.getUsedConstants.any indVals[0]!.all.contains) then
-          return (← fallback)
-        ty.withApp fun fn args => do
-          let fnName := fn.constName!
-          if let some indIdx := indVals[0]!.all.findIdx? (· == fnName) then
-            let ty := realMotives[indIdx]!
-            let ty := mkAppN ty args[indVals[indIdx]!.numParams:]
-            let ty := mkApp ty (mkAppN f xs)
-            let ty ← mkForallFVars xs ty
-            let motive ← mkLambdaFVars #[f] ty
-            return motive.tryEtaReduce
-          else
-            let ty ← nestedMotiveAndMinors ty true
-            let ty := mkApp ty (mkAppN f xs)
-            let ty ← mkForallFVars xs ty
-            let motive ← mkLambdaFVars #[f] ty
-            return motive.tryEtaReduce
+    forallTelescope param fun xs ty => do
+      let fallback := do mkLambdaFVars xs (← mkLambdaFVars #[f] (mkConst `True))
+      if !(param.getUsedConstants.any indVals[0]!.all.contains) then
+        return (← fallback)
+      ty.withApp fun fn args => do
+      let fnName := fn.constName!
+      if let some indIdx := indVals[0]!.all.findIdx? (· == fnName) then
+        let ty := realMotives[indIdx]!
+        let ty := mkAppN ty args[indVals[indIdx]!.numParams:]
+        let ty := mkApp ty (mkAppN f xs)
+        let ty ← mkForallFVars xs ty
+        let motive ← mkLambdaFVars #[f] ty
+        return motive.tryEtaBetaReduce
+      else
+        let ty ← nestedMotiveAndMinors ty true
+        let ty := mkApp ty (mkAppN f xs)
+        let ty ← mkForallFVars xs ty
+        let motive ← mkLambdaFVars #[f] ty
+        return motive.tryEtaBetaReduce
 
 /--Generate the sparse recursor for an inductive type `Ind` using `#gen_sparse_rec Ind`.
 This recursor is then used by the `induction` tactic, which usually fails when trying to induct on nested inductive types.
@@ -133,13 +134,13 @@ public def genSparseRec (cfg : Config) (indName sparseRecName: Name) : TermElabM
     let oldMinors := xs[recInfo.getFirstMinorIdx:recInfo.getFirstMinorIdx + numMinors]
     let lctx ← getLCtx
     let lctx := oldMinors.foldl (init := lctx) (fun lctx e => lctx.modifyLocalDecl e.fvarId! fun ldecl => ldecl.setType (Expr.replaceFVars ldecl.type nestedMotives sparseForNestedMotives))
-    Meta.withLCtx' lctx do
+    withLCtx' lctx do
       let minors := oldMinors.toArray.map (Expr.replaceFVars · nestedMotives sparseForNestedMotives)
       let ty ← mkForallFVars indices_and_major ty
       let ty ← mkForallFVars minors ty
       let ty ← mkForallFVars motives ty
       let ty ← mkForallFVars params ty
-      Meta.check ty
+      check ty
       let recUnivs := match recInfo.levelParams with
         | [] => []
         | _::us => 0::us.map Level.param
@@ -153,7 +154,7 @@ public def genSparseRec (cfg : Config) (indName sparseRecName: Name) : TermElabM
       let te ← mkLambdaFVars motives te
       let te ← mkLambdaFVars params te
       trace[Leanduction.Recursor] m!"term : {te}"
-      Meta.check te
+      check te
       addDecl <| .defnDecl {
         name := sparseRecName
         levelParams := match recInfo.levelParams with | [] => [] | _::tl => tl
